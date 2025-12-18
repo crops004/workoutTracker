@@ -11,7 +11,9 @@ app.use(express.json());
 // In dev you’ll run client on http://localhost:5173
 app.use(cors({
   origin: (process.env.CORS_ORIGIN || "http://localhost:5173").split(","),
+  credentials: false,
 }));
+
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
