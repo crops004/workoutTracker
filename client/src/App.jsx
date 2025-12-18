@@ -14,13 +14,17 @@ function lsGet(key, fallback = null) {
 function lsSet(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
+  } catch {
+    // ignore
+  }
 }
 
 function lsDel(key) {
   try {
     localStorage.removeItem(key);
-  } catch {}
+  } catch {
+    // ignore
+  }
 }
 
 export default function App() {
