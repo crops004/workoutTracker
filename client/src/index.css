@@ -19,6 +19,18 @@ body {
   padding: 16px;
 }
 
+/* Full-width card (break out of the 520 max) */
+.card-wide {
+  width: 100%;
+  max-width: none;
+}
+
+input,
+select {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 h1 {
   font-size: 42px;
   margin: 8px 0 16px;
@@ -106,4 +118,123 @@ input::placeholder {
   .set-weight { grid-area: weight; }
   .set-reps { grid-area: reps; }
   .set-rpe { grid-area: rpe; }
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 50;
+}
+
+.modal {
+  width: 100%;
+  max-width: 420px;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+}
+
+/* ---------- Mobile-first layout polish (Manage) ---------- */
+
+.container {
+  padding: 14px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.card {
+  padding: 14px;
+  border-radius: 16px;
+}
+
+/* Make any row wrap by default on small screens */
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.row.wrap { flex-wrap: wrap; }
+
+/* Inputs */
+.input, select.input, input.input, select {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 12px;
+}
+
+/* Tabs (Exercises / Workouts) */
+.tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Add exercise row becomes a clean grid */
+.manage-add-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 80px;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+.manage-add-row button {
+  grid-column: 1 / -1; /* button full width on mobile */
+}
+
+/* Each exercise row becomes stacked + tidy */
+.manage-ex-row {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.manage-ex-title {
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+.manage-ex-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.manage-ex-actions {
+  display: grid;
+  grid-template-columns: 44px 44px 1fr; /* ↑ ↓ Remove */
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.manage-ex-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.manage-ex-status {
+  margin-top: 8px;
+  min-height: 16px;
+}
+
+.tiny { font-size: 12px; }
+
+/* ---------- Upgrade for larger screens ---------- */
+@media (min-width: 640px) {
+  .manage-add-row {
+    grid-template-columns: 1fr 90px 90px 120px;
+  }
+  .manage-add-row button {
+    grid-column: auto; /* button inline on desktop */
+  }
+
+  .manage-ex-actions {
+    grid-template-columns: 44px 44px 120px;
+    justify-content: end;
+  }
 }
