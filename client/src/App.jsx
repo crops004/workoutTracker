@@ -76,6 +76,21 @@ export default function App() {
   const [exercises, setExercises] = useState([]);
   const [newExName, setNewExName] = useState("");
 
+  // NEW: create-exercise fields
+  const [newExTrackingType, setNewExTrackingType] = useState("weight_reps"); // "weight_reps" | "time"
+  const [newExTimeUnit, setNewExTimeUnit] = useState("seconds"); // "seconds" | "minutes"
+  const [newExUrl, setNewExUrl] = useState("");
+  const [newExNotes, setNewExNotes] = useState("");
+
+  // NEW: edit exercise modal/card state
+  const [editingExercise, setEditingExercise] = useState(null); // exercise object
+  const [exEditName, setExEditName] = useState("");
+  const [exEditTrackingType, setExEditTrackingType] = useState("weight_reps");
+  const [exEditTimeUnit, setExEditTimeUnit] = useState("seconds");
+  const [exEditUrl, setExEditUrl] = useState("");
+  const [exEditNotes, setExEditNotes] = useState("");
+  const [exerciseEditStatus, setExerciseEditStatus] = useState("idle"); // "idle" | "saving" | "saved" | "error"
+
   const [workoutTemplates, setWorkoutTemplates] = useState([]);
   const [newWorkoutName, setNewWorkoutName] = useState("");
 
@@ -251,6 +266,25 @@ export default function App() {
     return s.replace(",", " -").replace(/\s?(AM|PM)$/i, "");
   }
 
+  function formatPrimaryValue(exercise, repsValue) {
+    if (repsValue == null) return "—";
+
+    const isTime = exercise?.tracking_type === "time";
+    if (!isTime) return String(repsValue);
+
+    const unit = exercise?.time_unit || "seconds";
+
+    // IMPORTANT: this assumes you normalized minutes -> seconds when saving
+    // (from the saveExercise() I gave you). If you did NOT normalize,
+    // remove the seconds conversion below and just print repsValue + unit.
+    if (unit === "minutes") {
+      const mins = Math.round(Number(repsValue) / 60);
+      return `${mins} min`;
+    }
+
+    return `${repsValue} sec`;
+  }
+
   function planLabel(p) {
     // UI-only fix so "Week 1" displays as "Lift B — Week 1" even if stored name is short
     if (!selectedWorkoutName) return p.name;
@@ -396,15 +430,31 @@ export default function App() {
   }
 
   async function createExercise() {
+    const payload = {
+      name: newExName,
+      tracking_type: newExTrackingType,
+      time_unit: newExTrackingType === "time" ? newExTimeUnit : "seconds",
+      info_url: newExUrl.trim() || null,
+      notes: newExNotes.trim() || null,
+    };
+
     const resp = await fetch(`${API}/api/exercises`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newExName }),
+      body: JSON.stringify(payload),
     });
+
     const data = await resp.json();
     if (!resp.ok) return alert(data.error || "Failed");
+
     setExercises((p) => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
+
+    // reset
     setNewExName("");
+    setNewExTrackingType("weight_reps");
+    setNewExTimeUnit("seconds");
+    setNewExUrl("");
+    setNewExNotes("");
   }
 
   async function deleteExercise(id) {
@@ -412,6 +462,60 @@ export default function App() {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) return alert(data.error || "Failed");
     setExercises((p) => p.filter((x) => x.id !== id));
+  }
+
+  function openExerciseEditor(ex) {
+    setEditingExercise(ex);
+    setExEditName(ex.name ?? "");
+    setExEditTrackingType(ex.tracking_type ?? "weight_reps");
+    setExEditTimeUnit(ex.time_unit ?? "seconds");
+    setExEditUrl(ex.info_url ?? "");
+    setExEditNotes(ex.notes ?? "");
+    setExerciseEditStatus("idle");
+  }
+
+  function closeExerciseEditor() {
+    setEditingExercise(null);
+    setExerciseEditStatus("idle");
+  }
+
+  async function saveExerciseEdits() {
+    if (!editingExercise) return;
+
+    setExerciseEditStatus("saving");
+
+    const payload = {
+      name: exEditName,
+      tracking_type: exEditTrackingType,
+      time_unit: exEditTrackingType === "time" ? exEditTimeUnit : "seconds",
+      info_url: exEditUrl.trim() || null,
+      notes: exEditNotes.trim() || null,
+    };
+
+    try {
+      const resp = await fetch(`${API}/api/exercises/${editingExercise.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const ct = resp.headers.get("content-type") || "";
+      const data = ct.includes("application/json")
+        ? await resp.json()
+        : { error: await resp.text() };
+      if (!resp.ok) throw new Error(data.error || "Save failed");
+
+      setExercises((prev) =>
+        prev.map((x) => (x.id === data.id ? data : x)).sort((a, b) => a.name.localeCompare(b.name))
+      );
+
+      setEditingExercise(data);
+      setExerciseEditStatus("saved");
+      setTimeout(() => setExerciseEditStatus("idle"), 900);
+    } catch (e) {
+      console.error(e);
+      setExerciseEditStatus("error");
+    }
   }
 
   async function createWorkout() {
@@ -704,13 +808,32 @@ export default function App() {
     const exId = exercise.exercise_id;
     const rows = setsByExercise[exId] || [];
 
+    const isTime = exercise?.tracking_type === "time";
+    const unit = exercise?.time_unit || "seconds"; // "seconds" | "minutes"
+
     const cleaned = rows
-      .map((r) => ({
-        set_number: r.set_number,
-        weight: r.weight === "" ? null : Number(r.weight),
-        reps: r.reps === "" ? null : Number(r.reps),
-        rpe: r.rpe === "" ? null : Number(r.rpe),
-      }))
+      .map((r) => {
+        const weight = r.weight === "" ? null : Number(r.weight);
+        const repsRaw = r.reps === "" ? null : Number(r.reps);
+        const rpe = r.rpe === "" ? null : Number(r.rpe);
+
+        // If this is time-based, we store the duration in the "reps" column.
+        // Normalize to seconds in DB if unit is minutes.
+        const reps =
+          repsRaw == null
+            ? null
+            : isTime
+              ? (unit === "minutes" ? Math.round(repsRaw * 60) : repsRaw)
+              : repsRaw;
+
+        return {
+          set_number: Number(r.set_number),
+          weight: weight == null || Number.isNaN(weight) ? null : weight,
+          reps: reps == null || Number.isNaN(reps) ? null : reps,
+          rpe: rpe == null || Number.isNaN(rpe) ? null : rpe,
+        };
+      })
+      // keep row if any field is present
       .filter((r) => r.weight !== null || r.reps !== null || r.rpe !== null);
 
     if (cleaned.length === 0) {
@@ -986,7 +1109,7 @@ export default function App() {
                     <div className="muted" style={{ display: "grid", gap: 6 }}>
                       {last.sets.map((s) => (
                         <div key={s.set_number}>
-                          Set {s.set_number}: {s.weight ?? "—"} × {s.reps ?? "—"}
+                          Set {s.set_number}: {s.weight ?? "—"} × {formatPrimaryValue(currentExercise, s.reps)}
                           {s.rpe != null ? ` (RPE ${s.rpe})` : ""}
                         </div>
                       ))}
@@ -1012,7 +1135,11 @@ export default function App() {
                     <input
                       className="set-reps"
                       inputMode="numeric"
-                      placeholder="Reps"
+                      placeholder={
+                        currentExercise.tracking_type === "time"
+                          ? (currentExercise.time_unit === "minutes" ? "Minutes" : "Seconds")
+                          : "Reps"
+                      }
                       value={row.reps}
                       onChange={(e) => updateSetField(currentExercise.exercise_id, idx, "reps", e.target.value)}
                     />
@@ -1091,34 +1218,146 @@ export default function App() {
             <div style={{ display: "grid", gap: 10 }}>
               <h3 style={{ margin: 0 }}>Exercise library</h3>
 
-              <div className="row">
+              {/* Create */}
+              <div className="card" style={{ display: "grid", gap: 10 }}>
+                <div className="muted">Add a new exercise</div>
+
                 <input
-                  placeholder="Exercise name (e.g., Leg Press)"
+                  className="input"
+                  placeholder="Exercise name (e.g., Dead Hang)"
                   value={newExName}
                   onChange={(e) => setNewExName(e.target.value)}
-                  style={{ flex: 1 }}
                 />
-                <button className="btn btn-primary" onClick={createExercise}>
-                  Add
+
+                <div className="row wrap" style={{ gap: 10 }}>
+                  <select
+                    className="input"
+                    value={newExTrackingType}
+                    onChange={(e) => setNewExTrackingType(e.target.value)}
+                    style={{ minWidth: 220 }}
+                  >
+                    <option value="weight_reps">Weight + reps</option>
+                    <option value="time">Time</option>
+                  </select>
+
+                  {newExTrackingType === "time" && (
+                    <select
+                      className="input"
+                      value={newExTimeUnit}
+                      onChange={(e) => setNewExTimeUnit(e.target.value)}
+                      style={{ minWidth: 180 }}
+                    >
+                      <option value="seconds">Seconds</option>
+                      <option value="minutes">Minutes</option>
+                    </select>
+                  )}
+                </div>
+
+                <input
+                  className="input"
+                  placeholder="Info URL (optional)"
+                  value={newExUrl}
+                  onChange={(e) => setNewExUrl(e.target.value)}
+                />
+
+                <textarea
+                  className="input"
+                  placeholder="Notes (optional)"
+                  value={newExNotes}
+                  onChange={(e) => setNewExNotes(e.target.value)}
+                  rows={3}
+                />
+
+                <button className="btn btn-primary" onClick={createExercise} disabled={!newExName.trim()}>
+                  Add exercise
                 </button>
               </div>
 
+              {/* List */}
               <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 10 }}>
                 {exercises.length === 0 ? (
                   <div className="muted">No exercises yet.</div>
                 ) : (
                   <div style={{ display: "grid", gap: 8 }}>
                     {exercises.map((ex) => (
-                      <div key={ex.id} className="row" style={{ justifyContent: "space-between" }}>
-                        <div style={{ fontWeight: 700 }}>{ex.name}</div>
-                        <button className="btn" onClick={() => deleteExercise(ex.id)}>
-                          Delete
-                        </button>
+                      <div key={ex.id} className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800 }}>{ex.name}</div>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            {ex.tracking_type === "time"
+                              ? `Tracking: time (${ex.time_unit || "seconds"})`
+                              : "Tracking: weight + reps"}
+                            {ex.info_url ? " • has link" : ""}
+                            {ex.notes ? " • has notes" : ""}
+                          </div>
+                        </div>
+
+                        <div className="row" style={{ gap: 8 }}>
+                          <button className="btn" onClick={() => openExerciseEditor(ex)}>
+                            Edit
+                          </button>
+                          <button className="btn" onClick={() => deleteExercise(ex.id)}>
+                            Delete
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+
+              {/* Editor */}
+              {editingExercise && (
+                <div className="card" style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontWeight: 900 }}>Edit exercise</div>
+                    <button className="btn" onClick={closeExerciseEditor} disabled={exerciseEditStatus === "saving"}>
+                      Close
+                    </button>
+                  </div>
+
+                  <input className="input" value={exEditName} onChange={(e) => setExEditName(e.target.value)} />
+
+                  <div className="row wrap" style={{ gap: 10 }}>
+                    <select className="input" value={exEditTrackingType} onChange={(e) => setExEditTrackingType(e.target.value)}>
+                      <option value="weight_reps">Weight + reps</option>
+                      <option value="time">Time</option>
+                    </select>
+
+                    {exEditTrackingType === "time" && (
+                      <select className="input" value={exEditTimeUnit} onChange={(e) => setExEditTimeUnit(e.target.value)}>
+                        <option value="seconds">Seconds</option>
+                        <option value="minutes">Minutes</option>
+                      </select>
+                    )}
+                  </div>
+
+                  <input
+                    className="input"
+                    placeholder="Info URL (optional)"
+                    value={exEditUrl}
+                    onChange={(e) => setExEditUrl(e.target.value)}
+                  />
+
+                  <textarea
+                    className="input"
+                    placeholder="Notes (optional)"
+                    value={exEditNotes}
+                    onChange={(e) => setExEditNotes(e.target.value)}
+                    rows={3}
+                  />
+
+                  <div className="row" style={{ gap: 10, alignItems: "center" }}>
+                    <button className="btn btn-primary" onClick={saveExerciseEdits} disabled={exerciseEditStatus === "saving"}>
+                      {exerciseEditStatus === "saving" ? "Saving…" : "Save changes"}
+                    </button>
+
+                    <div className="muted" style={{ fontSize: 13 }}>
+                      {exerciseEditStatus === "saved" ? "Saved ✓" : exerciseEditStatus === "error" ? "Error — try again" : ""}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1401,7 +1640,7 @@ export default function App() {
 
                 <input
                   className="input"
-                  placeholder='Plan name (e.g., "Week 1", "Heavy", "Light", "Deload")'
+                  placeholder='Plan name (e.g., "Week 1", "Deload")'
                   value={newPlanName}
                   onChange={(e) => setNewPlanName(e.target.value)}
                 />
@@ -1520,11 +1759,11 @@ export default function App() {
                           </div>
 
                           <div>
-                            <div className="muted tiny">Planned wt</div>
+                            <div className="muted tiny">Planned weight</div>
                             <input
                               className="input"
                               inputMode="decimal"
-                              placeholder="e.g. 45"
+                              placeholder="..."
                               value={ex.target_weight ?? ""}
                               onChange={(e) => {
                                 const v = e.target.value;

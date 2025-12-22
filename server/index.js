@@ -270,6 +270,10 @@ app.get("/api/sessions/:id/runner", async (req, res) => {
              wpe.id as plan_exercise_id,
              wpe.exercise_id,
              e.name,
+             e.tracking_type,
+             e.time_unit,
+             e.info_url,
+             e.notes,
              wpe.sort_order,
              wpe.target_sets,
              wpe.target_reps,
@@ -305,6 +309,10 @@ app.get("/api/sessions/:id/runner", async (req, res) => {
          wte.id as template_exercise_id,
          wte.exercise_id,
          e.name,
+         e.tracking_type,
+         e.time_unit,
+         e.info_url,
+         e.notes,
          wte.sort_order,
          wte.target_sets,
          wte.target_reps
@@ -411,6 +419,65 @@ app.get("/api/exercises/:id/last", async (req, res) => {
   });
 });
 
+// Update an exercise
+app.patch("/api/exercises/:id", async (req, res) => {
+  try {
+    const id = asInt(req.params.id);
+
+    const name =
+      req.body.name == null ? null : String(req.body.name).trim();
+
+    const tracking_type =
+      req.body.tracking_type == null ? null : String(req.body.tracking_type);
+
+    const time_unit =
+      req.body.time_unit == null ? null : String(req.body.time_unit);
+
+    const info_url =
+      req.body.info_url == null || String(req.body.info_url).trim() === ""
+        ? null
+        : String(req.body.info_url).trim();
+
+    const notes =
+      req.body.notes == null || String(req.body.notes).trim() === ""
+        ? null
+        : String(req.body.notes).trim();
+
+    if (tracking_type != null && !["weight_reps", "time"].includes(tracking_type)) {
+      return res.status(400).json({ error: "tracking_type must be 'weight_reps' or 'time'" });
+    }
+    if (time_unit != null && !["seconds", "minutes"].includes(time_unit)) {
+      return res.status(400).json({ error: "time_unit must be 'seconds' or 'minutes'" });
+    }
+
+    const { rows } = await pool.query(
+      `update exercises
+       set
+         name = coalesce($1, name),
+         tracking_type = coalesce($2, tracking_type),
+         time_unit = coalesce($3, time_unit),
+         info_url = $4,
+         notes = $5
+       where id = $6::int
+       returning id, name, tracking_type, time_unit, info_url, notes`,
+      [
+        name && name !== "" ? name : null,
+        tracking_type,
+        time_unit,
+        info_url,
+        notes,
+        id,
+      ]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: "Exercise not found" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("PATCH EXERCISE ERROR:", err);
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
 // Delete a session and all its sets
 app.delete("/api/sessions/:id", async (req, res) => {
   const sessionId = asInt(req.params.id);
@@ -435,7 +502,7 @@ app.delete("/api/sessions/:id", async (req, res) => {
 
 app.get("/api/exercises", async (req, res) => {
   const { rows } = await pool.query(
-    `select id, name
+    `select id, name, tracking_type, time_unit, info_url, notes
      from exercises
      order by name asc`
   );
