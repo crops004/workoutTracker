@@ -2,6 +2,34 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
+async function pingHealth() {
+  const resp = await fetch(`${API}/api/health`, { cache: "no-store" });
+
+  // If Render returns HTML or something weird during warmup, this protects you
+  const ct = resp.headers.get("content-type") || "";
+  if (!resp.ok) throw new Error(`health not ok (${resp.status})`);
+  if (!ct.includes("application/json")) throw new Error("health returned non-json");
+
+  return resp.json();
+}
+
+async function waitForApi({ timeoutMs = 45000, intervalMs = 1500 } = {}) {
+  const start = Date.now();
+  let lastErr = null;
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      await pingHealth();
+      return true;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
+
+  throw lastErr || new Error("API did not wake up in time");
+}
+
 function lsGet(key, fallback = null) {
   try {
     const v = localStorage.getItem(key);
@@ -27,6 +55,10 @@ function lsDel(key) {
 }
 
 export default function App() {
+  const [apiReady, setApiReady] = useState(false);
+  const [apiWaking, setApiWaking] = useState(true);
+  const [apiWakeError, setApiWakeError] = useState("");
+
   const [workouts, setWorkouts] = useState([]);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
   const [selectedWorkout, setSelectedWorkout] = useState(null);
@@ -87,6 +119,28 @@ export default function App() {
     const list = await fetch(`${API}/api/plans`).then((r) => r.json());
     setPlans(Array.isArray(list) ? list : []);
   }
+
+  // Wake API on load
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        setApiWaking(true);
+        setApiWakeError("");
+        await waitForApi({ timeoutMs: 45000, intervalMs: 1500 });
+        if (!alive) return;
+        setApiReady(true);
+      } catch  { // ignore
+        if (!alive) return;
+        setApiWakeError("Waking up the server took too long. Tap retry.");
+      } finally {
+        if (alive) setApiWaking(false);
+      }
+    })();
+
+    return () => { alive = false; };
+  }, []);
 
   // Load plans
   useEffect(() => {
@@ -807,14 +861,41 @@ export default function App() {
     <div className="container">
       <h1>Workout Tracker</h1>
 
-      <div className="row" style={{ marginBottom: 12 }}>
-        <button className={`btn ${view === "run" ? "btn-primary" : ""}`} onClick={() => setView("run")}>
-          Run
-        </button>
-        <button className={`btn ${view === "manage" ? "btn-primary" : ""}`} onClick={() => setView("manage")}>
-          Manage
-        </button>
-      </div>
+      {/* ---------- API warmup gate ---------- */}
+      {!apiReady ? (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 8 }}>
+            {apiWaking ? "Waking up server…" : "Server not ready"}
+          </div>
+
+          <div className="muted" style={{ marginBottom: 12 }}>
+            {apiWaking
+              ? "This happens after the app has been idle for a while."
+              : apiWakeError || "Tap retry."}
+          </div>
+
+          {!apiWaking && (
+            <button className="btn btn-primary" onClick={() => window.location.reload()}>
+              Retry
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="row" style={{ marginBottom: 12 }}>
+            <button
+              className={`btn ${view === "run" ? "btn-primary" : ""}`}
+              onClick={() => setView("run")}
+            >
+              Run
+            </button>
+            <button
+              className={`btn ${view === "manage" ? "btn-primary" : ""}`}
+              onClick={() => setView("manage")}
+            >
+              Manage
+            </button>
+          </div>
 
       {/* ---------------- RUN ---------------- */}
       {view === "run" && (
@@ -1496,6 +1577,8 @@ export default function App() {
           </div>
         </div>
       )}
-    </div>
+    </>
+  )}
+</div>
   );
 }
