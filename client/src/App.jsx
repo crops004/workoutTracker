@@ -179,6 +179,24 @@ export default function App() {
     return plans.filter((p) => Number(p.base_template_id) === id);
   }, [plans, selectedWorkoutId]);
 
+  function formatLocalDateTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+
+    // Example output: 12/22/25, 6:09 PM (depends on locale)
+    const s = new Intl.DateTimeFormat(undefined, {
+      month: "2-digit",
+      day: "2-digit",
+      year: "2-digit",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(d);
+
+    // Match your example: "12/22/25 - 6:09" (strip AM/PM)
+    return s.replace(",", " -").replace(/\s?(AM|PM)$/i, "");
+  }
+
   function planLabel(p) {
     // UI-only fix so "Week 1" displays as "Lift B — Week 1" even if stored name is short
     if (!selectedWorkoutName) return p.name;
@@ -1233,7 +1251,7 @@ export default function App() {
                           <div style={{ display: "grid", gap: 2 }}>
                             <div style={{ fontWeight: 800 }}>{s.workout_name}</div>
                             <div className="muted" style={{ fontSize: 13 }}>
-                              {s.performed_on}
+                              {formatLocalDateTime(s.created_at)}
                             </div>
                           </div>
 
@@ -1252,7 +1270,7 @@ export default function App() {
                   <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
                     <div style={{ fontWeight: 900, fontSize: 18 }}>{selectedSession.workout_name}</div>
                     <div className="muted" style={{ fontSize: 13 }}>
-                      {selectedSession.performed_on} • Session #{selectedSession.id}
+                      {formatLocalDateTime(selectedSession.created_at)} • Session #{selectedSession.id}
                     </div>
                   </div>
 

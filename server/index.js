@@ -718,15 +718,17 @@ app.get("/api/sessions", async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 50), 200);
 
     const { rows } = await pool.query(
-      `select
-         ws.id,
-         ws.performed_on,
-         wt.name as workout_name
-       from workout_sessions ws
-       join workout_templates wt on wt.id = ws.workout_template_id
-       order by ws.performed_on desc, ws.id desc
-       limit $1::int`,
-      [limit]
+        `select
+            ws.id,
+            ws.performed_on,
+            ws.created_at,
+            coalesce(p.name, wt.name, 'Workout') as workout_name
+        from workout_sessions ws
+        left join workout_plans p on p.id = ws.plan_id
+        left join workout_templates wt on wt.id = ws.workout_template_id
+        order by ws.created_at desc, ws.id desc
+        limit $1::int`,
+        [limit]
     );
 
     res.json(rows);
@@ -742,14 +744,16 @@ app.get("/api/sessions/:id", async (req, res) => {
     const sessionId = asInt(req.params.id);
 
     const header = await pool.query(
-      `select
-         ws.id,
-         ws.performed_on,
-         wt.name as workout_name
-       from workout_sessions ws
-       join workout_templates wt on wt.id = ws.workout_template_id
-       where ws.id = $1::int`,
-      [sessionId]
+        `select
+            ws.id,
+            ws.performed_on,
+            ws.created_at,
+            coalesce(p.name, wt.name, 'Workout') as workout_name
+        from workout_sessions ws
+        left join workout_plans p on p.id = ws.plan_id
+        left join workout_templates wt on wt.id = ws.workout_template_id
+        where ws.id = $1::int`,
+        [sessionId]
     );
 
     if (!header.rows.length) return res.status(404).json({ error: "Session not found" });
