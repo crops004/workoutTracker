@@ -1066,7 +1066,7 @@ app.get("/api/calendar", async (req, res) => {
     `
     select
       wc.id,
-      wc.planned_on,
+      wc.planned_on::text as planned_on,
       wc.workout_plan_id,
       coalesce(wc.label, wp.name) as label,
       wc.notes,
@@ -1098,7 +1098,7 @@ app.post("/api/calendar", async (req, res) => {
     `
     insert into workout_calendar (planned_on, workout_plan_id, label, notes)
     values ($1::date, $2::int, $3::text, $4::text)
-    returning id, planned_on, workout_plan_id, label, notes
+    returning id, planned_on::text as planned_on, workout_plan_id, label, notes
     `,
     [planned_on, planId, label, notes]
   );

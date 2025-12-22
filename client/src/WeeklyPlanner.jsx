@@ -85,7 +85,7 @@ export default function WeeklyPlanner({
     const m = new Map();
     for (const d of days) m.set(d, []);
     for (const it of items) {
-      const key = it.planned_on;
+      const key = String(it.planned_on).slice(0, 10);
       if (!m.has(key)) m.set(key, []);
       m.get(key).push(it);
     }
