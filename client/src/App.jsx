@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
+import WeeklyPlanner from "./WeeklyPlanner"
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -71,7 +72,7 @@ export default function App() {
   const [lastTimeByExercise, setLastTimeByExercise] = useState({});
 
   const [showQuitModal, setShowQuitModal] = useState(false);
-  const [view, setView] = useState("run"); // "run" | "manage"
+  const [view, setView] = useState("run"); // "run" | "manage" | "planner"
 
   const [exercises, setExercises] = useState([]);
   const [newExName, setNewExName] = useState("");
@@ -1013,12 +1014,34 @@ export default function App() {
               Run
             </button>
             <button
+              className={`btn ${view === "planner" ? "btn-primary" : ""}`}
+              onClick={() => setView("planner")}
+            >
+              Planner
+            </button>
+            <button
               className={`btn ${view === "manage" ? "btn-primary" : ""}`}
               onClick={() => setView("manage")}
             >
               Manage
             </button>
           </div>
+
+      {/* ---------------- PLANNER ---------------- */}
+      {view === "planner" && (
+        <WeeklyPlanner
+          apiBase={API}
+          plans={plans}
+          planDisplayName={planDisplayName}
+          activeSessionId={sessionId}
+          activeSessionLabel={runnerWorkoutName}
+          onResumeActive={() => setView("run")}
+          onStartPlan={async (planId) => {
+            await startSessionFromPlan(planId);
+            setView("run");
+          }}
+        />
+      )}
 
       {/* ---------------- RUN ---------------- */}
       {view === "run" && (

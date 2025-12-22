@@ -33,6 +33,26 @@ function asInt(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseISODateOnly(s) {
+  // "YYYY-MM-DD" -> Date at UTC midnight
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function isoDateOnly(dateUtc) {
+  return dateUtc.toISOString().slice(0, 10);
+}
+
+function startOfWeekMonday(dateUtc) {
+  // 0=Sun, 1=Mon, ... 6=Sat
+  const dow = dateUtc.getUTCDay();
+  const diff = dow === 0 ? -6 : 1 - dow; // shift back to Monday
+  const monday = new Date(dateUtc);
+  monday.setUTCDate(monday.getUTCDate() + diff);
+  return monday;
+}
+
 async function getWorkoutTemplate(pool, workoutId) {
   const w = await pool.query(
     `select id, name
@@ -1030,6 +1050,76 @@ app.patch("/api/plans/:planId/exercises/:planExerciseId", async (req, res) => {
     console.error("UPDATE PLAN EXERCISE ERROR:", err);
     res.status(500).json({ error: String(err.message || err) });
   }
+});
+
+// --- Workout calendar ---
+app.get("/api/calendar", async (req, res) => {
+  // You can pass ANY date; server normalizes to that week's Monday.
+  const weekStartParam = req.query.week_start;
+  const d = parseISODateOnly(weekStartParam);
+  if (!d) return res.status(400).json({ error: "week_start must be YYYY-MM-DD" });
+
+  const mondayUtc = startOfWeekMonday(d);
+  const weekStart = isoDateOnly(mondayUtc); // canonical Monday
+
+  const { rows } = await pool.query(
+    `
+    select
+      wc.id,
+      wc.planned_on,
+      wc.workout_plan_id,
+      coalesce(wc.label, wp.name) as label,
+      wc.notes,
+      ws.id as session_id
+    from workout_calendar wc
+    join workout_plans wp on wp.id = wc.workout_plan_id
+    left join workout_sessions ws on ws.workout_calendar_id = wc.id
+    where wc.planned_on >= $1::date
+      and wc.planned_on < ($1::date + interval '7 days')
+    order by wc.planned_on asc, wc.id asc
+    `,
+    [weekStart]
+  );
+
+  res.json({ week_start: weekStart, items: rows });
+});
+
+// Add a calendar entry
+app.post("/api/calendar", async (req, res) => {
+  const { planned_on, workout_plan_id, label = null, notes = null } = req.body;
+
+  const d = parseISODateOnly(planned_on);
+  if (!d) return res.status(400).json({ error: "planned_on must be YYYY-MM-DD" });
+
+  const planId = asInt(workout_plan_id);
+  if (!planId) return res.status(400).json({ error: "workout_plan_id must be an int" });
+
+  const { rows } = await pool.query(
+    `
+    insert into workout_calendar (planned_on, workout_plan_id, label, notes)
+    values ($1::date, $2::int, $3::text, $4::text)
+    returning id, planned_on, workout_plan_id, label, notes
+    `,
+    [planned_on, planId, label, notes]
+  );
+
+  res.status(201).json(rows[0]);
+});
+
+// Delete a calendar entry  
+app.delete("/api/calendar/:id", async (req, res) => {
+  const id = asInt(req.params.id);
+  if (!id) return res.status(400).json({ error: "id must be int" });
+
+  // Optional: prevent deleting if already started
+  const started = await pool.query(
+    `select 1 from workout_sessions where workout_calendar_id = $1::int limit 1`,
+    [id]
+  );
+  if (started.rows.length) return res.status(409).json({ error: "Already started" });
+
+  await pool.query(`delete from workout_calendar where id = $1::int`, [id]);
+  res.json({ ok: true });
 });
 
 const port = process.env.PORT || 3001;
