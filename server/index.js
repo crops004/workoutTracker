@@ -1060,28 +1060,35 @@ app.get("/api/calendar", async (req, res) => {
   if (!d) return res.status(400).json({ error: "week_start must be YYYY-MM-DD" });
 
   const mondayUtc = startOfWeekMonday(d);
-  const weekStart = isoDateOnly(mondayUtc); // canonical Monday
+  const weekStart = isoDateOnly(mondayUtc);           // canonical Monday (YYYY-MM-DD)
+
+  const weekEndUtc = new Date(mondayUtc);             // exclusive end = next Monday
+  weekEndUtc.setUTCDate(weekEndUtc.getUTCDate() + 7);
+  const weekEnd = isoDateOnly(weekEndUtc);
 
   const { rows } = await pool.query(
     `
     select
       wc.id,
-      wc.planned_on::text as planned_on,
+      wc.planned_on,
       wc.workout_plan_id,
-      coalesce(wc.label, wp.name) as label,
+      wp.name as plan_name,
+      wc.workout_template_id,
+      wt.name as workout_name,
+      wc.label,
       wc.notes,
-      ws.id as session_id
+      (coalesce(wc.label, wt.name) || ' — ' || wp.name) as title
     from workout_calendar wc
     join workout_plans wp on wp.id = wc.workout_plan_id
-    left join workout_sessions ws on ws.workout_calendar_id = wc.id
+    join workout_templates wt on wt.id = wc.workout_template_id
     where wc.planned_on >= $1::date
-      and wc.planned_on < ($1::date + interval '7 days')
+      and wc.planned_on <  $2::date
     order by wc.planned_on asc, wc.id asc
     `,
-    [weekStart]
+    [weekStart, weekEnd]   // ✅ pass both params
   );
 
-  res.json({ week_start: weekStart, items: rows });
+  res.json({ week_start: weekStart, items: rows });   // ✅ fix variable name
 });
 
 // Add a calendar entry
@@ -1096,9 +1103,9 @@ app.post("/api/calendar", async (req, res) => {
 
   const { rows } = await pool.query(
     `
-    insert into workout_calendar (planned_on, workout_plan_id, label, notes)
-    values ($1::date, $2::int, $3::text, $4::text)
-    returning id, planned_on::text as planned_on, workout_plan_id, label, notes
+    insert into workout_calendar (planned_on, workout_plan_id, workout_template_id, label, notes)
+    values ($1::date, $2::int, (select base_template_id from workout_plans where id = $2::int), $3::text, $4::text)
+    returning id, planned_on::text as planned_on, workout_plan_id, workout_template_id, label, notes
     `,
     [planned_on, planId, label, notes]
   );

@@ -151,9 +151,13 @@ export default function WeeklyPlanner({
   }
 
   function displayForItem(it) {
-    // if the calendar row has a label override, use it
+    // label override still wins
     if (it.label) return it.label;
 
+    // new: show actual workout name if provided by API
+    if (it.workout_name) return it.workout_name;
+
+    // fallback (old behavior)
     const p = (plans || []).find((x) => Number(x.id) === Number(it.workout_plan_id));
     return p ? planDisplayName(p) : `Plan #${it.workout_plan_id}`;
   }
@@ -220,6 +224,9 @@ export default function WeeklyPlanner({
                     <div key={it.id} className="row" style={{ justifyContent: "space-between", gap: 10 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 800 }}>{displayForItem(it)}</div>
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          {it.plan_name ? it.plan_name : null}
+                        </div>
                         {it.notes ? (
                           <div className="muted" style={{ fontSize: 12 }}>{it.notes}</div>
                         ) : null}
