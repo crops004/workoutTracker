@@ -235,7 +235,7 @@ export default function WeeklyPlanner({
                       <div className="row" style={{ gap: 8 }}>
                         <button
                           className="btn btn-primary"
-                          onClick={() => onStartPlan(Number(it.workout_plan_id))}
+                          onClick={() => onStartPlan(Number(it.workout_plan_id), Number(it.id))}
                         >
                           Start
                         </button>

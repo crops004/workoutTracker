@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import WeeklyPlanner from "./WeeklyPlanner"
+import HistoryTable from "./HistoryTable";
+import PlanImport from "./PlanImport";
+
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -121,6 +124,9 @@ export default function App() {
   const [workoutNameDraft, setWorkoutNameDraft] = useState("");
   const [renameWorkoutStatus, setRenameWorkoutStatus] = useState("idle"); // idle | saving | error
 
+  const [historyMode, setHistoryMode] = useState("list"); // "list" | "table"
+  const [plansMode, setPlansMode] = useState("list"); // "list" | "import"
+
   // Plan rename draft
   const [planNameDraft, setPlanNameDraft] = useState("");
 
@@ -233,6 +239,15 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
+  // Switch history view to list mode when a session is selected
+  useEffect(() => {
+    if (selectedSession) setHistoryMode("list");
+  }, [selectedSession]);
+
+  useEffect(() => {
+    if (plansMode === "import") setEditingPlan(null);
+  }, [plansMode]);
+
   const currentExercise = useMemo(() => {
     if (!runnerExercises?.length) return null;
     return runnerExercises[exerciseIndex] || null;
@@ -248,6 +263,12 @@ export default function App() {
     if (!id) return [];
     return plans.filter((p) => Number(p.base_template_id) === id);
   }, [plans, selectedWorkoutId]);
+
+  async function loadPlans() {
+    const resp = await fetch(`${API}/api/plans`, { cache: "no-store" });
+    const data = await resp.json();
+    if (resp.ok) setPlans(data);
+  }
 
   function formatLocalDateTime(iso) {
     if (!iso) return "";
@@ -704,12 +725,13 @@ export default function App() {
     await loadRunner(data.session_id);
   }
 
-  async function startSessionFromPlan(planId) {
+  async function startSessionFromPlan(planId, workoutCalendarId) {
     const resp = await fetch(`${API}/api/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         plan_id: Number(planId),
+        workout_calendar_id: workoutCalendarId ?? null,
         performed_on: new Date().toISOString().slice(0, 10),
       }),
     });
@@ -724,6 +746,7 @@ export default function App() {
     setExerciseIndex(0);
 
     lsSet("wt_activeSessionId", data.session_id);
+    lsSet("wt_activeWorkoutCalendarId", data.workout_calendar_id ?? null);
     lsSet("wt_activeExerciseIndex", 0);
 
     await loadRunner(data.session_id);
@@ -1036,8 +1059,8 @@ export default function App() {
           activeSessionId={sessionId}
           activeSessionLabel={runnerWorkoutName}
           onResumeActive={() => setView("run")}
-          onStartPlan={async (planId) => {
-            await startSessionFromPlan(planId);
+          onStartPlan={async (planId, workoutCalendarId) => {
+            await startSessionFromPlan(planId, workoutCalendarId);
             setView("run");
           }}
         />
@@ -1549,24 +1572,43 @@ export default function App() {
           {/* ---------------- History ---------------- */}
           {manageTab === "history" && (
             <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                 <div>
                   <div style={{ fontWeight: 900, fontSize: 20 }}>History</div>
                   <div className="muted" style={{ fontSize: 13 }}>
-                    Last 50 sessions
+                    {historyMode === "list" ? "Last 50 sessions" : "All sets (table)"}
                   </div>
                 </div>
 
-                {selectedSession && (
-                  <div className="row" style={{ gap: 10 }}>
-                    <button className="btn" onClick={() => deleteSessionFromHistory(selectedSession.id)}>
-                      Delete session
-                    </button>
-                    <button className="btn" onClick={() => setSelectedSession(null)}>
-                      Back
-                    </button>
-                  </div>
-                )}
+                <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+                  {!selectedSession && (
+                    <>
+                      <button
+                        className={`btn ${historyMode === "list" ? "btn-primary" : ""}`}
+                        onClick={() => setHistoryMode("list")}
+                      >
+                        List
+                      </button>
+                      <button
+                        className={`btn ${historyMode === "table" ? "btn-primary" : ""}`}
+                        onClick={() => setHistoryMode("table")}
+                      >
+                        Table
+                      </button>
+                    </>
+                  )}
+
+                  {selectedSession && (
+                    <>
+                      <button className="btn" onClick={() => deleteSessionFromHistory(selectedSession.id)}>
+                        Delete session
+                      </button>
+                      <button className="btn" onClick={() => setSelectedSession(null)}>
+                        Back
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {historyError && (
@@ -1576,7 +1618,11 @@ export default function App() {
                 </div>
               )}
 
-              {!selectedSession && (
+              {!selectedSession && historyMode === "table" && (
+                <HistoryTable apiBase={API} />
+              )}
+
+              {!selectedSession && historyMode === "list" && (
                 <div className="card card-wide">
                   {historyLoading ? (
                     <div className="muted">Loading…</div>
@@ -1649,169 +1695,259 @@ export default function App() {
             <div style={{ display: "grid", gap: 12 }}>
               <div style={{ fontWeight: 800, fontSize: 18 }}>Plans</div>
 
-              <div className="card" style={{ display: "grid", gap: 10 }}>
-                <div className="muted">Create a planned workout from a workout shell</div>
-
-                <select className="input" value={newPlanTemplateId} onChange={(e) => setNewPlanTemplateId(e.target.value)}>
-                  <option value="">Select workout…</option>
-                  {workouts.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-
-                <input
-                  className="input"
-                  placeholder='Plan name (e.g., "Week 1", "Deload")'
-                  value={newPlanName}
-                  onChange={(e) => setNewPlanName(e.target.value)}
-                />
-
-                <button className="btn btn-primary" onClick={createPlan}>
-                  Create plan
+              {/* Mode toggle */}
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className={`btn ${plansMode === "list" ? "btn-primary" : ""}`}
+                  onClick={() => setPlansMode("list")}
+                >
+                  Plans
+                </button>
+                <button
+                  className={`btn ${plansMode === "import" ? "btn-primary" : ""}`}
+                  onClick={() => {
+                    setPlansMode("import");
+                    setEditingPlan(null); // optional: close editor when importing
+                  }}
+                >
+                  Import TSV
                 </button>
               </div>
 
-              <div className="card" style={{ display: "grid", gap: 8 }}>
-                <div className="muted">Your plans</div>
+              {/* IMPORT MODE */}
+              {plansMode === "import" ? (
+                <PlanImport
+                  apiBase={API}
+                  onImported={async () => {
+                    await loadPlans();
+                    setPlansMode("list");
+                  }}
+                />
+              ) : (
+                <>
+                  {/* LIST/EDIT MODE */}
 
-                <div className="row wrap">
-                  {plans.map((p) => (
-                    <button
-                      key={p.id}
-                      className="btn btn-pill"
-                      onClick={async () => {
-                        const data = await fetch(`${API}/api/plans/${p.id}`).then((r) => r.json());
-                        setEditingPlan(data);
-                        setPlanNameDraft(data?.plan?.name ?? "");
+                  <div className="card" style={{ display: "grid", gap: 10 }}>
+                    <div className="muted">Create a planned workout from a workout shell</div>
+
+                    <select
+                      className="input"
+                      value={newPlanTemplateId}
+                      onChange={(e) => {
+                        setNewPlanTemplateId(e.target.value);
+                        setEditingPlan(null); // optional: close editor when filter changes
                       }}
                     >
-                      {planDisplayName(p)}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                      <option value="">Select workout…</option>
+                      {workouts.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>
 
-              {editingPlan && (
-                <div className="card" style={{ display: "grid", gap: 10 }}>
-                  <div className="row" style={{ alignItems: "center", gap: 10 }}>
-                    <div style={{ fontWeight: 900, fontSize: 18 }}>
-                      {planDisplayName(editingPlan.plan)}
-                    </div>
-                    <div style={{ flex: 1 }} />
-                    <button className="btn" onClick={() => deletePlan(editingPlan.plan.id)}>
-                      Delete plan
-                    </button>
-                    <button className="btn" onClick={() => setEditingPlan(null)}>
-                      Close
-                    </button>
-                  </div>
-
-                  <div className="card" style={{ display: "grid", gap: 8 }}>
-                    <div className="muted tiny">Rename plan</div>
                     <input
                       className="input"
-                      value={planNameDraft}
-                      onChange={(e) => setPlanNameDraft(e.target.value)}
-                      onBlur={() => renamePlan(editingPlan.plan.id, planNameDraft)}
-                      placeholder="Plan name"
+                      placeholder='Plan name (e.g., "Week 1", "Deload")'
+                      value={newPlanName}
+                      onChange={(e) => setNewPlanName(e.target.value)}
                     />
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      Display will be: <b>{editingPlan.plan.template_name} — {planNameDraft || editingPlan.plan.name}</b>
-                    </div>
+
+                    <button className="btn btn-primary" onClick={createPlan}>
+                      Create plan
+                    </button>
                   </div>
 
-                  <div className="muted">Set plan targets (sets/reps/weight)</div>
+                  {/* FILTERED PLANS LIST */}
+                  {(() => {
+                    const selectedTemplateId = newPlanTemplateId ? Number(newPlanTemplateId) : null;
 
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {editingPlan.exercises.map((ex) => (
-                      <div key={ex.id} className="manage-ex-row">
-                        <div className="manage-ex-title">{ex.name}</div>
+                    const selectedWorkoutName = selectedTemplateId
+                      ? workouts.find((w) => Number(w.id) === selectedTemplateId)?.name
+                      : null;
 
-                        <div className="manage-ex-fields">
-                          <div>
-                            <div className="muted tiny">Sets</div>
-                            <input
-                              className="input"
-                              inputMode="numeric"
-                              value={ex.target_sets ?? ""}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setEditingPlan((prev) => ({
-                                  ...prev,
-                                  exercises: prev.exercises.map((x) => (x.id === ex.id ? { ...x, target_sets: v } : x)),
-                                }));
-                              }}
-                              onBlur={async () => {
-                                const resp = await fetch(`${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`, {
-                                  method: "PATCH",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ target_sets: ex.target_sets }),
-                                });
-                                const data = await resp.json();
-                                if (resp.ok) setEditingPlan(data);
-                                else alert(data.error || "Save failed");
-                              }}
-                            />
+                    const visiblePlans = selectedTemplateId
+                      ? (plans || [])
+                          .filter((p) => Number(p.base_template_id) === selectedTemplateId)
+                          .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+                      : [];
+
+                    return (
+                      <div className="card" style={{ display: "grid", gap: 8 }}>
+                        <div className="muted">
+                          {selectedTemplateId
+                            ? `Plans for: ${selectedWorkoutName || "Selected workout"}`
+                            : "Select a workout above to see its plans"}
+                        </div>
+
+                        {!selectedTemplateId ? (
+                          <div className="muted" style={{ fontSize: 13 }}>
+                            Pick a workout in the dropdown to filter the list.
                           </div>
-
-                          <div>
-                            <div className="muted tiny">Reps</div>
-                            <input
-                              className="input"
-                              value={ex.target_reps ?? ""}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setEditingPlan((prev) => ({
-                                  ...prev,
-                                  exercises: prev.exercises.map((x) => (x.id === ex.id ? { ...x, target_reps: v } : x)),
-                                }));
-                              }}
-                              onBlur={async () => {
-                                const resp = await fetch(`${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`, {
-                                  method: "PATCH",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ target_reps: ex.target_reps }),
-                                });
-                                const data = await resp.json();
-                                if (resp.ok) setEditingPlan(data);
-                                else alert(data.error || "Save failed");
-                              }}
-                            />
+                        ) : visiblePlans.length === 0 ? (
+                          <div className="muted" style={{ fontSize: 13 }}>
+                            No plans yet for this workout.
                           </div>
-
-                          <div>
-                            <div className="muted tiny">Planned weight</div>
-                            <input
-                              className="input"
-                              inputMode="decimal"
-                              placeholder="..."
-                              value={ex.target_weight ?? ""}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setEditingPlan((prev) => ({
-                                  ...prev,
-                                  exercises: prev.exercises.map((x) => (x.id === ex.id ? { ...x, target_weight: v } : x)),
-                                }));
-                              }}
-                              onBlur={async () => {
-                                const resp = await fetch(`${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`, {
-                                  method: "PATCH",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ target_weight: ex.target_weight }),
-                                });
-                                const data = await resp.json();
-                                if (resp.ok) setEditingPlan(data);
-                                else alert(data.error || "Save failed");
-                              }}
-                            />
+                        ) : (
+                          <div className="row wrap">
+                            {visiblePlans.map((p) => (
+                              <button
+                                key={p.id}
+                                className="btn btn-pill"
+                                onClick={async () => {
+                                  const data = await fetch(`${API}/api/plans/${p.id}`).then((r) => r.json());
+                                  setEditingPlan(data);
+                                  setPlanNameDraft(data?.plan?.name ?? "");
+                                }}
+                              >
+                                {planDisplayName(p)}
+                              </button>
+                            ))}
                           </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {editingPlan && (
+                    <div className="card" style={{ display: "grid", gap: 10 }}>
+                      <div className="row" style={{ alignItems: "center", gap: 10 }}>
+                        <div style={{ fontWeight: 900, fontSize: 18 }}>
+                          {planDisplayName(editingPlan.plan)}
+                        </div>
+                        <div style={{ flex: 1 }} />
+                        <button className="btn" onClick={() => deletePlan(editingPlan.plan.id)}>
+                          Delete plan
+                        </button>
+                        <button className="btn" onClick={() => setEditingPlan(null)}>
+                          Close
+                        </button>
+                      </div>
+
+                      <div className="card" style={{ display: "grid", gap: 8 }}>
+                        <div className="muted tiny">Rename plan</div>
+                        <input
+                          className="input"
+                          value={planNameDraft}
+                          onChange={(e) => setPlanNameDraft(e.target.value)}
+                          onBlur={() => renamePlan(editingPlan.plan.id, planNameDraft)}
+                          placeholder="Plan name"
+                        />
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          Display will be:{" "}
+                          <b>
+                            {editingPlan.plan.template_name} — {planNameDraft || editingPlan.plan.name}
+                          </b>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+
+                      <div className="muted">Set plan targets (sets/reps/weight)</div>
+
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {editingPlan.exercises.map((ex) => (
+                          <div key={ex.id} className="manage-ex-row">
+                            <div className="manage-ex-title">{ex.name}</div>
+
+                            <div className="manage-ex-fields">
+                              <div>
+                                <div className="muted tiny">Sets</div>
+                                <input
+                                  className="input"
+                                  inputMode="numeric"
+                                  value={ex.target_sets ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setEditingPlan((prev) => ({
+                                      ...prev,
+                                      exercises: prev.exercises.map((x) =>
+                                        x.id === ex.id ? { ...x, target_sets: v } : x
+                                      ),
+                                    }));
+                                  }}
+                                  onBlur={async () => {
+                                    const resp = await fetch(
+                                      `${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`,
+                                      {
+                                        method: "PATCH",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ target_sets: ex.target_sets }),
+                                      }
+                                    );
+                                    const data = await resp.json();
+                                    if (resp.ok) setEditingPlan(data);
+                                    else alert(data.error || "Save failed");
+                                  }}
+                                />
+                              </div>
+
+                              <div>
+                                <div className="muted tiny">Reps</div>
+                                <input
+                                  className="input"
+                                  value={ex.target_reps ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setEditingPlan((prev) => ({
+                                      ...prev,
+                                      exercises: prev.exercises.map((x) =>
+                                        x.id === ex.id ? { ...x, target_reps: v } : x
+                                      ),
+                                    }));
+                                  }}
+                                  onBlur={async () => {
+                                    const resp = await fetch(
+                                      `${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`,
+                                      {
+                                        method: "PATCH",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ target_reps: ex.target_reps }),
+                                      }
+                                    );
+                                    const data = await resp.json();
+                                    if (resp.ok) setEditingPlan(data);
+                                    else alert(data.error || "Save failed");
+                                  }}
+                                />
+                              </div>
+
+                              <div>
+                                <div className="muted tiny">Planned weight</div>
+                                <input
+                                  className="input"
+                                  inputMode="decimal"
+                                  placeholder="..."
+                                  value={ex.target_weight ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setEditingPlan((prev) => ({
+                                      ...prev,
+                                      exercises: prev.exercises.map((x) =>
+                                        x.id === ex.id ? { ...x, target_weight: v } : x
+                                      ),
+                                    }));
+                                  }}
+                                  onBlur={async () => {
+                                    const resp = await fetch(
+                                      `${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`,
+                                      {
+                                        method: "PATCH",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ target_weight: ex.target_weight }),
+                                      }
+                                    );
+                                    const data = await resp.json();
+                                    if (resp.ok) setEditingPlan(data);
+                                    else alert(data.error || "Save failed");
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

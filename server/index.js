@@ -6,7 +6,7 @@ import { Pool } from "pg";
 dotenv.config();
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
 // In dev you’ll run client on http://localhost:5173
 app.use(
@@ -175,6 +175,7 @@ app.post("/api/sessions", async (req, res) => {
   try {
     const tmplIn = asInt(req.body.workout_template_id);
     const planIn = asInt(req.body.plan_id);
+    const calIn = asInt(req.body.workout_calendar_id);
 
     if (!tmplIn && !planIn) {
       return res.status(400).json({ error: "workout_template_id or plan_id required" });
@@ -205,16 +206,17 @@ app.post("/api/sessions", async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `insert into workout_sessions (workout_template_id, plan_id, performed_on)
-       values ($1::int, $2::int, $3)
+      `insert into workout_sessions (workout_template_id, plan_id, workout_calendar_id, performed_on)
+       values ($1::int, $2::int, $3::int, $4)
        returning id`,
-      [templateId, planId, date]
+      [templateId, planId, calIn, date]
     );
 
     res.json({
       session_id: rows[0].id,
       workout_template_id: templateId,
       plan_id: planId,
+      workout_calendar_id: calIn ?? null,
     });
   } catch (err) {
     console.error("START SESSION ERROR:", err);
@@ -809,7 +811,11 @@ app.get("/api/sessions", async (req, res) => {
             ws.id,
             ws.performed_on,
             ws.created_at,
-            coalesce(p.name, wt.name, 'Workout') as workout_name
+            case
+              when wt.id is null then coalesce(p.name, 'Workout')
+              when p.id is null then wt.name
+              else (wt.name || ' — ' || p.name)
+            end as workout_name
         from workout_sessions ws
         left join workout_plans p on p.id = ws.plan_id
         left join workout_templates wt on wt.id = ws.workout_template_id
@@ -835,7 +841,11 @@ app.get("/api/sessions/:id", async (req, res) => {
             ws.id,
             ws.performed_on,
             ws.created_at,
-            coalesce(p.name, wt.name, 'Workout') as workout_name
+            case
+              when wt.id is null then coalesce(p.name, 'Workout')
+              when p.id is null then wt.name
+              else (wt.name || ' — ' || p.name)
+            end as workout_name
         from workout_sessions ws
         left join workout_plans p on p.id = ws.plan_id
         left join workout_templates wt on wt.id = ws.workout_template_id
@@ -1131,3 +1141,334 @@ app.delete("/api/calendar/:id", async (req, res) => {
 
 const port = process.env.PORT || 3001;
 app.listen(port, () => console.log(`API listening on ${port}`));
+
+// --- Workout history with sets ---
+app.get("/api/history/sets", async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit ?? 5000), 20000);
+
+    const from = req.query.from ? String(req.query.from) : null; // "YYYY-MM-DD"
+    const to = req.query.to ? String(req.query.to) : null;       // "YYYY-MM-DD"
+
+    const isIso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+    if (from && !isIso(from)) return res.status(400).json({ error: "from must be YYYY-MM-DD" });
+    if (to && !isIso(to)) return res.status(400).json({ error: "to must be YYYY-MM-DD" });
+
+    const params = [];
+    let where = `where 1=1`;
+
+    if (from) {
+      params.push(from);
+      where += ` and ws.performed_on >= $${params.length}::date`;
+    }
+    if (to) {
+      params.push(to);
+      where += ` and ws.performed_on <= $${params.length}::date`;
+    }
+
+    params.push(limit);
+    const limitIdx = params.length;
+
+    const sql = `
+      select
+        ws.id as session_id,
+        ws.performed_on::text as performed_on,
+        ws.created_at,
+        ws.plan_id,
+        p.name as plan_name,
+        ws.workout_template_id,
+        wt.name as template_name,
+
+        case
+          when wt.name is null and p.name is null then 'Workout'
+          when wt.name is null then p.name
+          when p.name is null then wt.name
+          else (wt.name || ' — ' || p.name)
+        end as workout_name,
+
+        es.exercise_id,
+        e.name as exercise_name,
+
+        es.set_number,
+        es.weight,
+        es.reps,
+        es.rpe,
+
+        coalesce(wpe.target_sets::int, wte.target_sets::int) as target_sets,
+        coalesce(wpe.target_reps::text, wte.target_reps::text) as target_reps,
+        wpe.target_weight as target_weight
+
+      from workout_sessions ws
+      left join workout_plans p on p.id = ws.plan_id
+      left join workout_templates wt on wt.id = ws.workout_template_id
+      join exercise_sets es on es.session_id = ws.id
+      join exercises e on e.id = es.exercise_id
+      left join workout_plan_exercises wpe
+        on wpe.plan_id = ws.plan_id
+       and wpe.exercise_id = es.exercise_id
+      left join workout_template_exercises wte
+        on wte.workout_template_id = ws.workout_template_id
+       and wte.exercise_id = es.exercise_id
+
+      ${where}
+      order by ws.performed_on desc, ws.id desc, es.exercise_id asc, es.set_number asc
+      limit $${limitIdx}::int
+    `;
+
+    const { rows } = await pool.query(sql, params);
+    res.json({ rows });
+  } catch (err) {
+    console.error("HISTORY SETS ERROR:", err);
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+// --- TSV parsing helpers ---
+function parseTSV(tsvText) {
+  const text = String(tsvText ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!text) return { headers: [], rows: [] };
+
+  const lines = text.split("\n").filter((l) => l.trim() !== "");
+  const headers = lines[0].split("\t").map((h) => h.trim());
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split("\t");
+    const obj = {};
+    for (let j = 0; j < headers.length; j++) {
+      obj[headers[j]] = (cols[j] ?? "").trim();
+    }
+    rows.push(obj);
+  }
+  return { headers, rows };
+}
+
+function reqStr(v, field) {
+  const s = String(v ?? "").trim();
+  if (!s) throw new Error(`Missing required field: ${field}`);
+  return s;
+}
+function optStr(v) {
+  const s = String(v ?? "").trim();
+  return s === "" ? null : s;
+}
+function optInt(v, field) {
+  const s = String(v ?? "").trim();
+  if (s === "") return null;
+  if (!/^-?\d+$/.test(s)) throw new Error(`${field} must be an integer (got "${s}")`);
+  return Number(s);
+}
+function optNum(v, field) {
+  const s = String(v ?? "").trim();
+  if (s === "") return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) throw new Error(`${field} must be a number (got "${s}")`);
+  return n;
+}
+
+// --- TSV plan importer ---
+app.post("/api/import/plans", async (req, res) => {
+  const { tsv, dry_run = true, mode = "create" } = req.body || {};
+  // mode: "create" (error if plan exists) OR "replace" (overwrite exercises if exists)
+
+  const client = await pool.connect();
+  try {
+    if (!tsv) return res.status(400).json({ error: "tsv is required" });
+    if (!["create", "replace"].includes(mode)) {
+      return res.status(400).json({ error: "mode must be 'create' or 'replace'" });
+    }
+
+    const { headers, rows } = parseTSV(tsv);
+
+    const needed = [
+      "plan_name",
+      "base_template_name",
+      "exercise_name",
+      "sort_order",
+      "target_sets",
+      "target_reps",
+      "target_weight",
+      "notes",
+    ];
+
+    // allow minimal TSV (only required cols); we'll treat missing optional columns as blank
+    const headerSet = new Set(headers);
+    for (const h of ["plan_name", "base_template_name", "exercise_name"]) {
+      if (!headerSet.has(h)) {
+        return res.status(400).json({
+          error: `TSV must include header column "${h}". Found: ${headers.join(", ")}`,
+        });
+      }
+    }
+
+    // Normalize each row into our expected shape (missing columns become "")
+    const norm = rows.map((r) => {
+      const get = (k) => (r[k] ?? "");
+      return {
+        plan_name: get("plan_name"),
+        base_template_name: get("base_template_name"),
+        exercise_name: get("exercise_name"),
+        sort_order: get("sort_order"),
+        target_sets: get("target_sets"),
+        target_reps: get("target_reps"),
+        target_weight: get("target_weight"),
+        notes: get("notes"),
+      };
+    });
+
+    // Validate + collect uniques
+    const planGroups = new Map(); // plan_name -> { base_template_name, items: [] }
+    const templateNames = new Set();
+    const exerciseNames = new Set();
+
+    for (const r of norm) {
+      const planName = reqStr(r.plan_name, "plan_name");
+      const baseTemplateName = reqStr(r.base_template_name, "base_template_name");
+      const exerciseName = reqStr(r.exercise_name, "exercise_name");
+
+      templateNames.add(baseTemplateName);
+      exerciseNames.add(exerciseName);
+
+      if (!planGroups.has(planName)) {
+        planGroups.set(planName, { base_template_name: baseTemplateName, items: [] });
+      } else {
+        // enforce one base template per plan name
+        const g = planGroups.get(planName);
+        if (g.base_template_name !== baseTemplateName) {
+          throw new Error(
+            `Plan "${planName}" has multiple base_template_name values ("${g.base_template_name}" vs "${baseTemplateName}")`
+          );
+        }
+      }
+
+      planGroups.get(planName).items.push({
+        exercise_name: exerciseName,
+        sort_order: optInt(r.sort_order, "sort_order"),
+        target_sets: optInt(r.target_sets, "target_sets"),
+        target_reps: optInt(r.target_reps, "target_reps"),
+        target_weight: optNum(r.target_weight, "target_weight"),
+        notes: optStr(r.notes),
+      });
+    }
+
+    await client.query("BEGIN");
+
+    // Lookup templates
+    const templateMap = new Map(); // name -> id
+    for (const name of templateNames) {
+      const t = await client.query(
+        `select id, name from workout_templates where lower(name) = lower($1) limit 1`,
+        [name]
+      );
+      if (!t.rows.length) throw new Error(`Base template not found: "${name}"`);
+      templateMap.set(name, t.rows[0].id);
+    }
+
+    // Lookup exercises
+    const exerciseMap = new Map(); // name -> id
+    for (const name of exerciseNames) {
+      const e = await client.query(
+        `select id, name from exercises where lower(name) = lower($1) limit 1`,
+        [name]
+      );
+      if (!e.rows.length) throw new Error(`Exercise not found: "${name}"`);
+      exerciseMap.set(name, e.rows[0].id);
+    }
+
+    let plansCreated = 0;
+    let plansUpdated = 0;
+    let exercisesInserted = 0;
+
+    // Create/replace each plan
+    for (const [planName, group] of planGroups.entries()) {
+      const baseTemplateId = templateMap.get(group.base_template_name);
+
+      const existing = await client.query(
+        `select id
+        from workout_plans
+        where lower(name) = lower($1)
+          and base_template_id = $2::int
+        limit 1`,
+        [planName, baseTemplateId]
+      );
+
+      let planId = null;
+
+      if (existing.rows.length) {
+        if (mode === "create") {
+          throw new Error(`Plan already exists for this workout: "${planName}" (use mode="replace" to overwrite)`);
+        }
+
+        planId = existing.rows[0].id;
+
+        await client.query(`delete from workout_plan_exercises where plan_id = $1::int`, [planId]);
+        plansUpdated += 1;
+      } else {
+        const created = await client.query(
+          `insert into workout_plans (name, base_template_id)
+           values ($1, $2::int)
+           returning id`,
+          [planName, baseTemplateId]
+        );
+        planId = created.rows[0].id;
+        plansCreated += 1;
+      }
+
+      // Sort order: if missing, assign sequential based on file order
+      const items = group.items.map((x, idx) => ({
+        ...x,
+        sort_order: x.sort_order ?? idx + 1,
+      }));
+
+      // Insert exercises
+      for (const it of items) {
+        const exerciseId = exerciseMap.get(it.exercise_name);
+
+        await client.query(
+          `insert into workout_plan_exercises
+           (plan_id, exercise_id, sort_order, target_sets, target_reps, target_weight, notes)
+           values ($1::int,$2::int,$3::int,$4::int,$5::int,$6,$7)`,
+          [
+            planId,
+            exerciseId,
+            it.sort_order,
+            it.target_sets,
+            it.target_reps,
+            it.target_weight,
+            it.notes,
+          ]
+        );
+
+        exercisesInserted += 1;
+      }
+    }
+
+    if (dry_run) {
+      await client.query("ROLLBACK");
+      return res.json({
+        ok: true,
+        dry_run: true,
+        mode,
+        plans_created: plansCreated,
+        plans_updated: plansUpdated,
+        exercises_inserted: exercisesInserted,
+      });
+    }
+
+    await client.query("COMMIT");
+    res.json({
+      ok: true,
+      dry_run: false,
+      mode,
+      plans_created: plansCreated,
+      plans_updated: plansUpdated,
+      exercises_inserted: exercisesInserted,
+    });
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch {}
+    console.error("IMPORT PLANS ERROR:", err);
+    res.status(400).json({ error: String(err.message || err) });
+  } finally {
+    client.release();
+  }
+});
