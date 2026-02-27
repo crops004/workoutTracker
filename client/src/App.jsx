@@ -238,6 +238,7 @@ export default function App() {
     if (!id) return [];
     return plans.filter((p) => Number(p.base_template_id) === id);
   }, [plans, selectedWorkoutId]);
+  const isWorkoutInProgress = view === "run" && Boolean(runner.sessionId);
 
   async function loadPlans() {
     const resp = await fetch(`${API}/api/plans`, { cache: "no-store" });
@@ -645,7 +646,7 @@ export default function App() {
 
   return (
     <div className="container">
-      <h1>Workout Tracker</h1>
+      {!isWorkoutInProgress && <h1>Workout Tracker</h1>}
 
       {/* ---------- API warmup gate ---------- */}
       {!apiReady ? (
@@ -668,26 +669,28 @@ export default function App() {
         </div>
       ) : (
         <>
-          <div className="row" style={{ marginBottom: 12 }}>
-            <button
-              className={`btn ${view === "run" ? "btn-primary" : ""}`}
-              onClick={() => setView("run")}
-            >
-              Run
-            </button>
-            <button
-              className={`btn ${view === "planner" ? "btn-primary" : ""}`}
-              onClick={() => setView("planner")}
-            >
-              Planner
-            </button>
-            <button
-              className={`btn ${view === "manage" ? "btn-primary" : ""}`}
-              onClick={() => setView("manage")}
-            >
-              Manage
-            </button>
-          </div>
+          {!isWorkoutInProgress && (
+            <div className="row" style={{ marginBottom: 12 }}>
+              <button
+                className={`btn ${view === "run" ? "btn-primary" : ""}`}
+                onClick={() => setView("run")}
+              >
+                Run
+              </button>
+              <button
+                className={`btn ${view === "planner" ? "btn-primary" : ""}`}
+                onClick={() => setView("planner")}
+              >
+                Planner
+              </button>
+              <button
+                className={`btn ${view === "manage" ? "btn-primary" : ""}`}
+                onClick={() => setView("manage")}
+              >
+                Manage
+              </button>
+            </div>
+          )}
 
       {/* ---------------- PLANNER ---------------- */}
       {view === "planner" && (

@@ -26,6 +26,7 @@ export default function RunView({
   finishWorkout,
   onQuitWorkout,
 }) {
+  const hasActiveSession = Boolean(sessionId);
   const status = currentExercise
     ? saveStatusByExercise[currentExercise.exercise_id] || "idle"
     : "idle";
@@ -37,6 +38,8 @@ export default function RunView({
 
   return (
     <>
+      {!hasActiveSession && (
+        <>
       <h2>Choose workout</h2>
       <div className="row wrap" style={{ marginBottom: 12 }}>
         <select
@@ -86,7 +89,8 @@ export default function RunView({
           </div>
           <button
             className="btn"
-            onClick={startSession}
+            onClick={() => startSession(selectedWorkout)}
+            disabled={!selectedWorkout}
             style={{ marginTop: 8 }}
           >
             Start {selectedWorkoutName}
@@ -96,6 +100,14 @@ export default function RunView({
 
       {!selectedWorkout && (
         <p style={{ opacity: 0.8 }}>Pick Lift A/B/C to begin.</p>
+      )}
+        </>
+      )}
+
+      {hasActiveSession && !currentExercise && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="muted">Loading active workout...</div>
+        </div>
       )}
 
       {sessionId && currentExercise && (
@@ -268,4 +280,3 @@ export default function RunView({
     </>
   );
 }
-
