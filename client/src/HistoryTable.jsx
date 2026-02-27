@@ -8,6 +8,17 @@ async function fetchJson(url) {
   return data;
 }
 
+function formatDateShort(isoLike) {
+  if (!isoLike) return "";
+  const d = new Date(isoLike);
+  if (Number.isNaN(d.getTime())) return String(isoLike);
+  return new Intl.DateTimeFormat(undefined, {
+    month: "numeric",
+    day: "numeric",
+    year: "2-digit",
+  }).format(d);
+}
+
 function toTSV(rows, columns) {
   const esc = (v) => {
     if (v == null) return "";
@@ -246,7 +257,7 @@ export default function HistoryTable({ apiBase }) {
                         whiteSpace: "nowrap",
                     }}
                     >
-                    {r[c.key] ?? ""}
+                    {c.key === "performed_on" ? formatDateShort(r[c.key]) : (r[c.key] ?? "")}
                     </td>
                 ))}
                 </tr>

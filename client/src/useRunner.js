@@ -314,6 +314,31 @@ export function useRunner(apiBase) {
     }
   }, [apiBase, sessionId, resetRunnerState]);
 
+  const saveExerciseInfoUrl = useCallback(
+    async (exerciseId, infoUrl) => {
+      const resp = await fetch(`${apiBase}/api/exercises/${exerciseId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ info_url: infoUrl }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.error || "Failed to save info URL");
+      }
+
+      setRunnerExercises((prev) =>
+        prev.map((ex) =>
+          Number(ex.exercise_id) === Number(exerciseId)
+            ? { ...ex, info_url: data.info_url ?? null }
+            : ex
+        )
+      );
+
+      return data;
+    },
+    [apiBase]
+  );
+
   useEffect(() => {
     if (!sessionId || !runnerExercises?.length) return;
     fetch(`${apiBase}/api/sessions/${sessionId}/sets`)
@@ -371,6 +396,7 @@ export function useRunner(apiBase) {
     startSession,
     startSessionFromPlan,
     quitAndDeleteSession,
+    saveExerciseInfoUrl,
     updateSetField,
     addSetRow,
     removeSetRow,

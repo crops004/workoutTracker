@@ -29,6 +29,7 @@ function fmtMD(iso) {
   return new Intl.DateTimeFormat(undefined, {
     month: "numeric",
     day: "numeric",
+    year: "2-digit",
     timeZone: "UTC",
   }).format(d);
 }
@@ -257,7 +258,7 @@ export default function WeeklyPlanner({
         <div className="modal-overlay" onClick={() => setAddForDate(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 8 }}>
-              Add plan for {addForDate}
+              Add plan for {fmtMD(addForDate)}
             </div>
 
             <div className="muted tiny" style={{ marginBottom: 6 }}>Search</div>

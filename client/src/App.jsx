@@ -249,19 +249,12 @@ export default function App() {
   function formatLocalDateTime(iso) {
     if (!iso) return "";
     const d = new Date(iso);
-
-    // Example output: 12/22/25, 6:09 PM (depends on locale)
-    const s = new Intl.DateTimeFormat(undefined, {
-      month: "2-digit",
-      day: "2-digit",
+    if (Number.isNaN(d.getTime())) return "";
+    return new Intl.DateTimeFormat(undefined, {
+      month: "numeric",
+      day: "numeric",
       year: "2-digit",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
     }).format(d);
-
-    // Match your example: "12/22/25 - 6:09" (strip AM/PM)
-    return s.replace(",", " -").replace(/\s?(AM|PM)$/i, "");
   }
 
   function formatPrimaryValue(exercise, repsValue) {
@@ -731,6 +724,8 @@ export default function App() {
           addSetRow={runner.addSetRow}
           removeSetRow={runner.removeSetRow}
           lastTimeByExercise={runner.lastTimeByExercise}
+          saveExerciseInfoUrl={runner.saveExerciseInfoUrl}
+          formatDateShort={formatLocalDateTime}
           formatPrimaryValue={formatPrimaryValue}
           saveStatusByExercise={runner.saveStatusByExercise}
           prevExercise={runner.prevExercise}

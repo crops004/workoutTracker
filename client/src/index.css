@@ -84,9 +84,13 @@ h2 {
 
 .set-row {
   display: grid;
-  grid-template-columns: 54px 1fr 1fr 1fr;
+  grid-template-columns: clamp(42px, 12vw, 54px) repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
+}
+
+.set-row input {
+  min-width: 0;
 }
 
 input {
@@ -103,21 +107,8 @@ input::placeholder {
   color: #8a8a8a;
 }
 
-/* Mobile-first: make set rows stack on narrow screens */
 @media (max-width: 420px) {
   h1 { font-size: 36px; }
-
-  .set-row {
-    grid-template-columns: 54px 1fr 1fr;
-    grid-template-areas:
-      "label weight reps"
-      "label rpe    rpe";
-  }
-
-  .set-label { grid-area: label; }
-  .set-weight { grid-area: weight; }
-  .set-reps { grid-area: reps; }
-  .set-rpe { grid-area: rpe; }
 }
 
 .modal-overlay {
