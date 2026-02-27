@@ -9,64 +9,18 @@ function isValidHttpUrl(value) {
   }
 }
 
-export default function RunView({
-  workouts,
-  selectedWorkoutId,
-  setSelectedWorkoutId,
-  selectedWorkout,
-  resetRunnerState,
-  plansForSelectedWorkout,
-  selectedWorkoutName,
-  planLabel,
-  startSession,
-  startSessionFromPlan,
-  sessionId,
-  currentExercise,
-  runnerExercises,
-  runnerWorkoutName,
-  exerciseIndex,
-  setsByExercise,
-  updateSetField,
-  addSetRow,
-  removeSetRow,
-  lastTimeByExercise,
-  saveExerciseInfoUrl,
-  formatDateShort,
-  formatPrimaryValue,
-  saveStatusByExercise,
-  prevExercise,
-  nextExercise,
-  finishWorkout,
-  onQuitWorkout,
-}) {
-  const hasActiveSession = Boolean(sessionId);
+function ExerciseHeaderTools({ currentExercise, saveExerciseInfoUrl }) {
   const [showInfoUrlEditor, setShowInfoUrlEditor] = useState(false);
   const [infoUrlDraft, setInfoUrlDraft] = useState("");
   const [infoUrlSaveStatus, setInfoUrlSaveStatus] = useState("idle");
   const [infoUrlSaveError, setInfoUrlSaveError] = useState("");
   const [showNotes, setShowNotes] = useState(false);
   const notesPopoverRef = useRef(null);
-  const status = currentExercise
-    ? saveStatusByExercise[currentExercise.exercise_id] || "idle"
-    : "idle";
-  const isSaving = status === "saving";
-  const isError = status === "error";
-  const isLast = runnerExercises.length
-    ? exerciseIndex === runnerExercises.length - 1
-    : false;
-  const nextExerciseName = !isLast ? runnerExercises[exerciseIndex + 1]?.name || "" : "";
+
   const hasInfoUrl = Boolean(currentExercise?.info_url);
   const notesText = String(currentExercise?.notes || "").trim();
   const hasNotes = Boolean(notesText);
   const canSaveInfoUrl = isValidHttpUrl(infoUrlDraft);
-
-  useEffect(() => {
-    setShowInfoUrlEditor(false);
-    setShowNotes(false);
-    setInfoUrlDraft("");
-    setInfoUrlSaveStatus("idle");
-    setInfoUrlSaveError("");
-  }, [currentExercise?.exercise_id]);
 
   useEffect(() => {
     if (!showNotes) return;
@@ -100,6 +54,220 @@ export default function RunView({
       setInfoUrlSaveError(e.message || "Failed to save URL");
     }
   }
+
+  return (
+    <>
+      <div className="row" style={{ alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>{currentExercise.name}</h2>
+
+        {hasInfoUrl ? (
+          <a
+            href={currentExercise.info_url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open exercise info link"
+            title="Open exercise info"
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 8,
+              border: "1px solid #3a3a3a",
+              background: "#1f1f1f",
+              color: "#fff",
+              textDecoration: "none",
+              display: "grid",
+              placeItems: "center",
+              fontSize: 14,
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M14 4H20V10"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M20 4L11 13"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M20 14V19C20 19.6 19.6 20 19 20H5C4.4 20 4 19.6 4 19V5C4 4.4 4.4 4 5 4H10"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </a>
+        ) : (
+          <button
+            className="btn"
+            title="Add exercise info URL"
+            onClick={() => {
+              setShowInfoUrlEditor((v) => !v);
+              setInfoUrlSaveStatus("idle");
+              setInfoUrlSaveError("");
+            }}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 8,
+              padding: 0,
+              fontSize: 18,
+              lineHeight: 1,
+              display: "grid",
+              placeItems: "center",
+              flexShrink: 0,
+            }}
+          >
+            +
+          </button>
+        )}
+
+        {hasNotes && (
+          <div ref={notesPopoverRef} style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              className="btn"
+              title="Show exercise notes"
+              onClick={() => setShowNotes((v) => !v)}
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 8,
+                padding: 0,
+                fontSize: 16,
+                lineHeight: 1,
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              i
+            </button>
+
+            {showNotes && (
+              <div
+                className="card"
+                style={{
+                  position: "absolute",
+                  top: 36,
+                  right: 0,
+                  width: 240,
+                  maxWidth: "80vw",
+                  zIndex: 20,
+                  padding: 10,
+                }}
+              >
+                <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
+                  Notes
+                </div>
+                <div style={{ whiteSpace: "pre-wrap", fontSize: 14 }}>{notesText}</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {!hasInfoUrl && showInfoUrlEditor && (
+        <div style={{ marginTop: 10, marginBottom: 12, display: "grid", gap: 8 }}>
+          <input
+            className="input"
+            inputMode="url"
+            placeholder="https://example.com/exercise"
+            value={infoUrlDraft}
+            onChange={(e) => setInfoUrlDraft(e.target.value)}
+          />
+
+          <div className="row" style={{ gap: 8 }}>
+            <button
+              className="btn btn-primary"
+              onClick={saveInfoUrl}
+              disabled={!canSaveInfoUrl || infoUrlSaveStatus === "saving"}
+            >
+              {infoUrlSaveStatus === "saving" ? "Saving..." : "Save URL"}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setShowInfoUrlEditor(false);
+                setInfoUrlDraft("");
+                setInfoUrlSaveStatus("idle");
+                setInfoUrlSaveError("");
+              }}
+              disabled={infoUrlSaveStatus === "saving"}
+            >
+              Cancel
+            </button>
+          </div>
+
+          {infoUrlSaveStatus === "error" && (
+            <div className="muted" style={{ fontSize: 13 }}>
+              {infoUrlSaveError}
+            </div>
+          )}
+          {infoUrlDraft && !canSaveInfoUrl && (
+            <div className="muted" style={{ fontSize: 13 }}>
+              Enter a valid URL starting with http:// or https://
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function RunView({
+  workouts,
+  selectedWorkoutId,
+  setSelectedWorkoutId,
+  resetRunnerState,
+  plansForSelectedWorkout,
+  selectedWorkoutName,
+  planLabel,
+  startSession,
+  startSessionFromPlan,
+  sessionId,
+  currentExercise,
+  runnerExercises,
+  runnerWorkoutName,
+  exerciseIndex,
+  setsByExercise,
+  updateSetField,
+  addSetRow,
+  removeSetRow,
+  lastTimeByExercise,
+  saveExerciseInfoUrl,
+  formatDateShort,
+  formatPrimaryValue,
+  saveStatusByExercise,
+  prevExercise,
+  nextExercise,
+  finishWorkout,
+  onQuitWorkout,
+}) {
+  const hasActiveSession = Boolean(sessionId);
+  const status = currentExercise
+    ? saveStatusByExercise[currentExercise.exercise_id] || "idle"
+    : "idle";
+  const isSaving = status === "saving";
+  const isError = status === "error";
+  const isLast = runnerExercises.length
+    ? exerciseIndex === runnerExercises.length - 1
+    : false;
+  const nextExerciseName = !isLast ? runnerExercises[exerciseIndex + 1]?.name || "" : "";
 
   return (
     <>
@@ -154,8 +322,8 @@ export default function RunView({
           </div>
           <button
             className="btn"
-            onClick={() => startSession(selectedWorkout)}
-            disabled={!selectedWorkout}
+            onClick={() => startSession(Number(selectedWorkoutId))}
+            disabled={!selectedWorkoutId}
             style={{ marginTop: 8 }}
           >
             Start {selectedWorkoutName}
@@ -163,15 +331,23 @@ export default function RunView({
         </>
       )}
 
-      {!selectedWorkout && (
-        <p style={{ opacity: 0.8 }}>Pick Lift A/B/C to begin.</p>
-      )}
         </>
       )}
 
       {hasActiveSession && !currentExercise && (
         <div className="card" style={{ marginTop: 16 }}>
-          <div className="muted">Loading active workout...</div>
+          {runnerExercises.length > 0 ? (
+            <div className="muted">Loading active workout...</div>
+          ) : (
+            <>
+              <div className="muted" style={{ marginBottom: 10 }}>
+                This workout has no exercises yet.
+              </div>
+              <button className="btn" onClick={onQuitWorkout}>
+                Back
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -209,144 +385,11 @@ export default function RunView({
             </div>
           </div>
 
-          <div className="row" style={{ alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <h2 style={{ margin: 0 }}>{currentExercise.name}</h2>
-
-            {hasInfoUrl ? (
-              <a
-                href={currentExercise.info_url}
-                target="_blank"
-                rel="noreferrer"
-                title="Open exercise info"
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  border: "1px solid #3a3a3a",
-                  background: "#1f1f1f",
-                  color: "#fff",
-                  textDecoration: "none",
-                  display: "grid",
-                  placeItems: "center",
-                  fontSize: 14,
-                  lineHeight: 1,
-                  flexShrink: 0,
-                }}
-              >
-                link
-              </a>
-            ) : (
-              <button
-                className="btn"
-                title="Add exercise info URL"
-                onClick={() => {
-                  setShowInfoUrlEditor((v) => !v);
-                  setInfoUrlSaveStatus("idle");
-                  setInfoUrlSaveError("");
-                }}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  padding: 0,
-                  fontSize: 18,
-                  lineHeight: 1,
-                  display: "grid",
-                  placeItems: "center",
-                  flexShrink: 0,
-                }}
-              >
-                +
-              </button>
-            )}
-
-            {hasNotes && (
-              <div ref={notesPopoverRef} style={{ position: "relative", flexShrink: 0 }}>
-                <button
-                  className="btn"
-                  title="Show exercise notes"
-                  onClick={() => setShowNotes((v) => !v)}
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 8,
-                    padding: 0,
-                    fontSize: 16,
-                    lineHeight: 1,
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  i
-                </button>
-
-                {showNotes && (
-                  <div
-                    className="card"
-                    style={{
-                      position: "absolute",
-                      top: 36,
-                      right: 0,
-                      width: 240,
-                      maxWidth: "80vw",
-                      zIndex: 20,
-                      padding: 10,
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
-                      Notes
-                    </div>
-                    <div style={{ whiteSpace: "pre-wrap", fontSize: 14 }}>{notesText}</div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {!hasInfoUrl && showInfoUrlEditor && (
-            <div style={{ marginTop: 10, marginBottom: 12, display: "grid", gap: 8 }}>
-              <input
-                className="input"
-                inputMode="url"
-                placeholder="https://example.com/exercise"
-                value={infoUrlDraft}
-                onChange={(e) => setInfoUrlDraft(e.target.value)}
-              />
-
-              <div className="row" style={{ gap: 8 }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={saveInfoUrl}
-                  disabled={!canSaveInfoUrl || infoUrlSaveStatus === "saving"}
-                >
-                  {infoUrlSaveStatus === "saving" ? "Saving..." : "Save URL"}
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    setShowInfoUrlEditor(false);
-                    setInfoUrlDraft("");
-                    setInfoUrlSaveStatus("idle");
-                    setInfoUrlSaveError("");
-                  }}
-                  disabled={infoUrlSaveStatus === "saving"}
-                >
-                  Cancel
-                </button>
-              </div>
-
-              {infoUrlSaveStatus === "error" && (
-                <div className="muted" style={{ fontSize: 13 }}>
-                  {infoUrlSaveError}
-                </div>
-              )}
-              {infoUrlDraft && !canSaveInfoUrl && (
-                <div className="muted" style={{ fontSize: 13 }}>
-                  Enter a valid URL starting with http:// or https://
-                </div>
-              )}
-            </div>
-          )}
+          <ExerciseHeaderTools
+            key={currentExercise.exercise_id}
+            currentExercise={currentExercise}
+            saveExerciseInfoUrl={saveExerciseInfoUrl}
+          />
 
           {(() => {
             const last = lastTimeByExercise[currentExercise.exercise_id];

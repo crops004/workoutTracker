@@ -211,6 +211,7 @@ export default function App() {
 
   // Load selected workout template
   useEffect(() => {
+    setSelectedWorkout(null);
     if (!selectedWorkoutId) return;
     fetch(`${API}/api/workouts/${selectedWorkoutId}`)
       .then((r) => r.json())

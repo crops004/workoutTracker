@@ -249,13 +249,18 @@ export function useRunner(apiBase) {
   }, [currentExercise, saveExercise, resetRunnerState]);
 
   const startSession = useCallback(
-    async (selectedWorkout) => {
-      if (!selectedWorkout) return;
+    async (selectedWorkoutOrId) => {
+      const workoutTemplateId =
+        typeof selectedWorkoutOrId === "number"
+          ? selectedWorkoutOrId
+          : Number(selectedWorkoutOrId?.workout?.id);
+      if (!workoutTemplateId) return;
+
       const resp = await fetch(`${apiBase}/api/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workout_template_id: selectedWorkout.workout.id,
+          workout_template_id: workoutTemplateId,
           performed_on: new Date().toISOString().slice(0, 10),
         }),
       });
@@ -267,7 +272,7 @@ export function useRunner(apiBase) {
       setSessionId(data.session_id);
       setExerciseIndex(0);
       lsSet("wt_activeSessionId", data.session_id);
-      lsSet("wt_activeWorkoutId", selectedWorkout.workout.id);
+      lsSet("wt_activeWorkoutId", workoutTemplateId);
       lsSet("wt_activeExerciseIndex", 0);
       await loadRunner(data.session_id);
     },
