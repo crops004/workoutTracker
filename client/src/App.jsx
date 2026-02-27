@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import WeeklyPlanner from "./WeeklyPlanner"
-import HistoryTable from "./HistoryTable";
-import PlanImport from "./PlanImport";
-
+import WeeklyPlanner from "./WeeklyPlanner";
+import RunView from "./RunView";
+import ManageView from "./ManageView";
+import { useRunner } from "./useRunner";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -67,15 +67,10 @@ export default function App() {
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
   const [selectedWorkout, setSelectedWorkout] = useState(null);
 
-  const [sessionId, setSessionId] = useState(null);
-  const [exerciseIndex, setExerciseIndex] = useState(0);
-
-  const [setsByExercise, setSetsByExercise] = useState({});
-  const [saveStatusByExercise, setSaveStatusByExercise] = useState({});
-  const [lastTimeByExercise, setLastTimeByExercise] = useState({});
-
   const [showQuitModal, setShowQuitModal] = useState(false);
   const [view, setView] = useState("run"); // "run" | "manage" | "planner"
+
+  const runner = useRunner(API);
 
   const [exercises, setExercises] = useState([]);
   const [newExName, setNewExName] = useState("");
@@ -116,9 +111,6 @@ export default function App() {
   const [newPlanTemplateId, setNewPlanTemplateId] = useState("");
 
   const [selectedPlanId, setSelectedPlanId] = useState("");
-
-  const [runnerWorkoutName, setRunnerWorkoutName] = useState("");
-  const [runnerExercises, setRunnerExercises] = useState([]);
 
   const [isRenamingWorkout, setIsRenamingWorkout] = useState(false);
   const [workoutNameDraft, setWorkoutNameDraft] = useState("");
@@ -206,15 +198,10 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [showQuitModal]);
 
-  // Persist selected workout/session/exercise index
+  // Restore selected workout from localStorage (runner restores session/exerciseIndex itself)
   useEffect(() => {
-    const savedSessionId = lsGet("wt_activeSessionId", null);
     const savedWorkoutId = lsGet("wt_activeWorkoutId", null);
-    const savedExerciseIndex = lsGet("wt_activeExerciseIndex", 0);
-
     if (savedWorkoutId) setSelectedWorkoutId(savedWorkoutId);
-    if (savedSessionId) setSessionId(savedSessionId);
-    if (typeof savedExerciseIndex === "number") setExerciseIndex(savedExerciseIndex);
   }, []);
 
   // Load workout list
@@ -232,13 +219,6 @@ export default function App() {
       });
   }, [selectedWorkoutId]);
 
-  // Load runner data when sessionId changes
-  useEffect(() => {
-    if (!sessionId) return;
-    loadRunner(sessionId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
-
   // Switch history view to list mode when a session is selected
   useEffect(() => {
     if (selectedSession) setHistoryMode("list");
@@ -247,11 +227,6 @@ export default function App() {
   useEffect(() => {
     if (plansMode === "import") setEditingPlan(null);
   }, [plansMode]);
-
-  const currentExercise = useMemo(() => {
-    if (!runnerExercises?.length) return null;
-    return runnerExercises[exerciseIndex] || null;
-  }, [runnerExercises, exerciseIndex]);
 
   const selectedWorkoutName = useMemo(() => {
     const id = Number(selectedWorkoutId);
@@ -296,9 +271,6 @@ export default function App() {
 
     const unit = exercise?.time_unit || "seconds";
 
-    // IMPORTANT: this assumes you normalized minutes -> seconds when saving
-    // (from the saveExercise() I gave you). If you did NOT normalize,
-    // remove the seconds conversion below and just print repsValue + unit.
     if (unit === "minutes") {
       const mins = Math.round(Number(repsValue) / 60);
       return `${mins} min`;
@@ -313,42 +285,6 @@ export default function App() {
     const a = String(p.name || "").toLowerCase();
     const b = String(selectedWorkoutName || "").toLowerCase();
     return a.includes(b) ? p.name : `${selectedWorkoutName} — ${p.name}`;
-  }
-
-  function repsSeedFromTarget(targetReps) {
-    // supports "8", "8-10", "10+" -> uses first number
-    const m = String(targetReps ?? "").match(/\d+/);
-    return m ? m[0] : "";
-  }
-
-  const makePlannedSetsForExercise = useCallback((ex) => {
-    const n = Number(ex.target_sets || 3);
-    const w = ex.target_weight == null ? "" : String(ex.target_weight);
-    const reps = repsSeedFromTarget(ex.target_reps);
-
-    return Array.from({ length: n }, (_, i) => ({
-      set_number: i + 1,
-      weight: w,
-      reps,
-      rpe: "",
-    }));
-  }, []);
-
-  function makeEmptySets(count = 3) {
-    return Array.from({ length: count }, (_, i) => ({
-      set_number: i + 1,
-      weight: "",
-      reps: "",
-      rpe: "",
-    }));
-  }
-
-  function padToTargetSets(existingRows, targetSets) {
-    const rows = [...existingRows];
-    while (rows.length < targetSets) {
-      rows.push({ set_number: rows.length + 1, weight: "", reps: "", rpe: "" });
-    }
-    return rows.map((r, idx) => ({ ...r, set_number: idx + 1 }));
   }
 
   // Load session details
@@ -697,312 +633,15 @@ export default function App() {
     }
   }
 
-  async function startSession() {
-    if (!selectedWorkout) return;
-
-    const resp = await fetch(`${API}/api/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workout_template_id: selectedWorkout.workout.id,
-        performed_on: new Date().toISOString().slice(0, 10),
-      }),
-    });
-
-    const data = await resp.json();
-    if (!resp.ok) {
-      alert(data.error || "Failed to start session");
-      return;
-    }
-
-    setSessionId(data.session_id);
-    setExerciseIndex(0);
-
-    lsSet("wt_activeSessionId", data.session_id);
-    lsSet("wt_activeWorkoutId", selectedWorkout.workout.id);
-    lsSet("wt_activeExerciseIndex", 0);
-
-    await loadRunner(data.session_id);
-  }
-
-  async function startSessionFromPlan(planId, workoutCalendarId) {
-    const resp = await fetch(`${API}/api/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        plan_id: Number(planId),
-        workout_calendar_id: workoutCalendarId ?? null,
-        performed_on: new Date().toISOString().slice(0, 10),
-      }),
-    });
-
-    const data = await resp.json();
-    if (!resp.ok) {
-      alert(data.error || "Failed to start plan session");
-      return;
-    }
-
-    setSessionId(data.session_id);
-    setExerciseIndex(0);
-
-    lsSet("wt_activeSessionId", data.session_id);
-    lsSet("wt_activeWorkoutCalendarId", data.workout_calendar_id ?? null);
-    lsSet("wt_activeExerciseIndex", 0);
-
-    await loadRunner(data.session_id);
-  }
-
-  async function loadRunner(sessId) {
-    try {
-      const resp = await fetch(`${API}/api/sessions/${sessId}/runner`);
-      const data = await resp.json();
-
-      if (!resp.ok) {
-        alert(data.error || "Failed to load runner");
-        return;
-      }
-
-      setRunnerWorkoutName(data.workout_name || "");
-      setRunnerExercises(Array.isArray(data.exercises) ? data.exercises : []);
-
-      // Ensure first exercise has rows (seed with planned weight/reps)
-      const first = (data.exercises || [])[0];
-      if (first) {
-        setSetsByExercise((prev) => {
-          if (prev[first.exercise_id]?.length) return prev;
-          return { ...prev, [first.exercise_id]: makePlannedSetsForExercise(first) };
-        });
-      }
-    } catch (e) {
-      console.error("Failed to load runner", e);
-      alert("Failed to load runner");
-    }
-  }
-
-  function ensureSetRows(exerciseId, count = 3) {
-    setSetsByExercise((prev) => {
-      if (prev[exerciseId]?.length) return prev;
-      return { ...prev, [exerciseId]: makeEmptySets(count) };
-    });
-  }
-
-  function updateSetField(exerciseId, setIdx, field, value) {
-    setSetsByExercise((prev) => {
-      const copy = { ...prev };
-      const rows = copy[exerciseId] ? [...copy[exerciseId]] : [];
-      rows[setIdx] = { ...rows[setIdx], [field]: value };
-      copy[exerciseId] = rows;
-      return copy;
-    });
-  }
-
-  function addSetRow(exerciseId) {
-    setSetsByExercise((prev) => {
-      const rows = prev[exerciseId] ? [...prev[exerciseId]] : [];
-      rows.push({ set_number: rows.length + 1, weight: "", reps: "", rpe: "" });
-      return { ...prev, [exerciseId]: rows };
-    });
-  }
-
-  function removeSetRow(exerciseId) {
-    setSetsByExercise((prev) => {
-      const rows = prev[exerciseId] ? [...prev[exerciseId]] : [];
-      if (rows.length <= 1) return prev;
-      rows.pop();
-      return { ...prev, [exerciseId]: rows };
-    });
-  }
-
-  function resetRunnerState() {
-    setSessionId(null);
-    setExerciseIndex(0);
-    setSetsByExercise({});
-    setSaveStatusByExercise({});
-    setLastTimeByExercise({});
-    setRunnerWorkoutName("");
-    setRunnerExercises([]);
-    lsDel("wt_activeSessionId");
-    lsDel("wt_activeWorkoutId");
-    lsDel("wt_activeExerciseIndex");
-  }
-
-  async function saveExercise(exercise) {
-    if (!sessionId) return false;
-
-    const exId = exercise.exercise_id;
-    const rows = setsByExercise[exId] || [];
-
-    const isTime = exercise?.tracking_type === "time";
-    const unit = exercise?.time_unit || "seconds"; // "seconds" | "minutes"
-
-    const cleaned = rows
-      .map((r) => {
-        const weight = r.weight === "" ? null : Number(r.weight);
-        const repsRaw = r.reps === "" ? null : Number(r.reps);
-        const rpe = r.rpe === "" ? null : Number(r.rpe);
-
-        // If this is time-based, we store the duration in the "reps" column.
-        // Normalize to seconds in DB if unit is minutes.
-        const reps =
-          repsRaw == null
-            ? null
-            : isTime
-              ? (unit === "minutes" ? Math.round(repsRaw * 60) : repsRaw)
-              : repsRaw;
-
-        return {
-          set_number: Number(r.set_number),
-          weight: weight == null || Number.isNaN(weight) ? null : weight,
-          reps: reps == null || Number.isNaN(reps) ? null : reps,
-          rpe: rpe == null || Number.isNaN(rpe) ? null : rpe,
-        };
-      })
-      // keep row if any field is present
-      .filter((r) => r.weight !== null || r.reps !== null || r.rpe !== null);
-
-    if (cleaned.length === 0) {
-      setSaveStatusByExercise((p) => ({ ...p, [exId]: "idle" }));
-      return true;
-    }
-
-    setSaveStatusByExercise((p) => ({ ...p, [exId]: "saving" }));
-
-    try {
-      const resp = await fetch(`${API}/api/sets/bulk`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          exercise_id: exId,
-          sets: cleaned,
-        }),
-      });
-
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "Save failed");
-
-      setSaveStatusByExercise((p) => ({ ...p, [exId]: "idle" }));
-      return true;
-    } catch (e) {
-      console.error(e);
-      setSaveStatusByExercise((p) => ({ ...p, [exId]: "error" }));
-      return false;
-    }
-  }
-
-  async function prevExercise() {
-    if (!currentExercise) return;
-    const ok = await saveExercise(currentExercise);
-    if (!ok) return;
-    setExerciseIndex((i) => Math.max(i - 1, 0));
-  }
-
-  async function nextExercise() {
-    if (!currentExercise) return;
-    const ok = await saveExercise(currentExercise);
-    if (!ok) return;
-    const lastIdx = runnerExercises.length - 1;
-    setExerciseIndex((i) => Math.min(i + 1, lastIdx));
-  }
-
-  async function finishWorkout() {
-    if (!currentExercise) return;
-    const ok = await saveExercise(currentExercise);
-    if (!ok) return;
-    resetRunnerState();
-  }
-
   async function quitWorkoutConfirmed() {
-    if (!sessionId) {
-      resetRunnerState();
-      return;
-    }
-
-    try {
-      await fetch(`${API}/api/sessions/${sessionId}`, { method: "DELETE" });
-    } catch (e) {
-      console.error("Failed to delete session", e);
-    } finally {
-      setShowQuitModal(false);
-      resetRunnerState();
-    }
+    await runner.quitAndDeleteSession();
+    setShowQuitModal(false);
   }
-
-  useEffect(() => {
-    if (sessionId) lsSet("wt_activeSessionId", sessionId);
-    else lsDel("wt_activeSessionId");
-  }, [sessionId]);
 
   useEffect(() => {
     if (selectedWorkoutId) lsSet("wt_activeWorkoutId", selectedWorkoutId);
     else lsDel("wt_activeWorkoutId");
   }, [selectedWorkoutId]);
-
-  useEffect(() => {
-    lsSet("wt_activeExerciseIndex", exerciseIndex);
-  }, [exerciseIndex]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    if (!runnerExercises?.length) return;
-
-    fetch(`${API}/api/sessions/${sessionId}/sets`)
-      .then((r) => r.json())
-      .then((rows) => {
-        const grouped = {};
-        for (const row of rows) {
-          const exId = row.exercise_id;
-          if (!grouped[exId]) grouped[exId] = [];
-          grouped[exId].push({
-            set_number: row.set_number,
-            weight: row.weight == null ? "" : String(row.weight),
-            reps: row.reps == null ? "" : String(row.reps),
-            rpe: row.rpe == null ? "" : String(row.rpe),
-          });
-        }
-
-        const finalMap = {};
-        for (const ex of runnerExercises) {
-          const exId = ex.exercise_id;
-          const existing = (grouped[exId] || []).sort((a, b) => a.set_number - b.set_number);
-
-          // If nothing logged yet, seed from the plan/template targets
-          finalMap[exId] =
-            existing.length === 0
-              ? makePlannedSetsForExercise(ex)
-              : padToTargetSets(existing, ex.target_sets || 3);
-        }
-
-        setSetsByExercise(finalMap);
-      })
-      .catch((e) => console.error("Failed to load sets", e));
-  }, [sessionId, runnerExercises, makePlannedSetsForExercise]);
-
-  useEffect(() => {
-    if (!currentExercise) return;
-    ensureSetRows(currentExercise.exercise_id, currentExercise.target_sets || 3);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exerciseIndex, sessionId]);
-
-  useEffect(() => {
-    if (!currentExercise) return;
-
-    const exId = currentExercise.exercise_id;
-    const url = new URL(`${API}/api/exercises/${exId}/last`);
-    if (sessionId) url.searchParams.set("exclude_session_id", sessionId);
-
-    fetch(url.toString())
-      .then((r) => r.json())
-      .then((data) => {
-        setLastTimeByExercise((prev) => ({ ...prev, [exId]: data }));
-      })
-      .catch((e) => console.error("Failed to load last time", e));
-  }, [currentExercise, sessionId]);
-
-  const status = currentExercise ? saveStatusByExercise[currentExercise.exercise_id] || "idle" : "idle";
-  const isSaving = status === "saving";
-  const isError = status === "error";
-  const isLast = runnerExercises.length ? exerciseIndex === runnerExercises.length - 1 : false;
 
   return (
     <div className="container">
@@ -1056,11 +695,11 @@ export default function App() {
           apiBase={API}
           plans={plans}
           planDisplayName={planDisplayName}
-          activeSessionId={sessionId}
-          activeSessionLabel={runnerWorkoutName}
+          activeSessionId={runner.sessionId}
+          activeSessionLabel={runner.runnerWorkoutName}
           onResumeActive={() => setView("run")}
           onStartPlan={async (planId, workoutCalendarId) => {
-            await startSessionFromPlan(planId, workoutCalendarId);
+            await runner.startSessionFromPlan(planId, workoutCalendarId);
             setView("run");
           }}
         />
@@ -1068,890 +707,119 @@ export default function App() {
 
       {/* ---------------- RUN ---------------- */}
       {view === "run" && (
-        <>
-          <h2>Choose workout</h2>
-            <div className="row wrap" style={{ marginBottom: 12 }}>
-              <select
-                className="input"
-                value={selectedWorkoutId ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  resetRunnerState();          // switching shells ends current session state
-                  setSelectedWorkoutId(v ? Number(v) : null);
-                }}
-                style={{ flex: 1, minWidth: 220 }}
-              >
-                <option value="">Select workout…</option>
-                {workouts.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {selectedWorkoutId && (
-              <>
-                <h2>Choose plan</h2>
-
-                {plansForSelectedWorkout.length === 0 ? (
-                  <p className="muted" style={{ opacity: 0.8 }}>
-                    No plans for {selectedWorkoutName}. Create one in Manage → Plans.
-                  </p>
-                ) : (
-                  <div className="row wrap" style={{ marginBottom: 12, gap: 10 }}>
-                    {plansForSelectedWorkout.map((p) => (
-                      <button
-                        key={p.id}
-                        className="btn btn-pill"
-                        onClick={() => startSessionFromPlan(p.id)}
-                      >
-                        {planLabel(p)}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Optional: still allow starting without plan */}
-                <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-                  Or start without a plan:
-                </div>
-                <button className="btn" onClick={startSession} style={{ marginTop: 8 }}>
-                  Start {selectedWorkoutName}
-                </button>
-              </>
-            )}
-
-          {!selectedWorkout && <p style={{ opacity: 0.8 }}>Pick Lift A/B/C to begin.</p>}
-
-          {sessionId && currentExercise && (
-            <div className="card" style={{ marginTop: 16 }}>
-              <div style={{ opacity: 0.8, marginBottom: 6 }}>
-                {runnerWorkoutName ? `${runnerWorkoutName} • ` : ""}Session #{sessionId} • Exercise {exerciseIndex + 1} /{" "}
-                {runnerExercises.length}
-              </div>
-
-              <h2 style={{ margin: 0 }}>{currentExercise.name}</h2>
-              <div style={{ opacity: 0.8, marginBottom: 12 }}>
-                Target: {currentExercise.target_sets} × {currentExercise.target_reps}
-              </div>
-
-              {(() => {
-                const last = lastTimeByExercise[currentExercise.exercise_id];
-                if (!last) return null;
-
-                if (!last.found) {
-                  return (
-                    <div className="muted" style={{ marginBottom: 12 }}>
-                      Last time: —
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="card" style={{ marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 6 }}>Last time ({last.performed_on})</div>
-
-                    <div className="muted" style={{ display: "grid", gap: 6 }}>
-                      {last.sets.map((s) => (
-                        <div key={s.set_number}>
-                          Set {s.set_number}: {s.weight ?? "—"} × {formatPrimaryValue(currentExercise, s.reps)}
-                          {s.rpe != null ? ` (RPE ${s.rpe})` : ""}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div style={{ display: "grid", gap: 10 }}>
-                {(setsByExercise[currentExercise.exercise_id] || []).map((row, idx) => (
-                  <div className="set-row" key={row.set_number}>
-                    <div className="set-label" style={{ fontWeight: 700 }}>
-                      Set {row.set_number}
-                    </div>
-
-                    <input
-                      className="set-weight"
-                      inputMode="decimal"
-                      placeholder="Weight"
-                      value={row.weight}
-                      onChange={(e) => updateSetField(currentExercise.exercise_id, idx, "weight", e.target.value)}
-                    />
-                    <input
-                      className="set-reps"
-                      inputMode="numeric"
-                      placeholder={
-                        currentExercise.tracking_type === "time"
-                          ? (currentExercise.time_unit === "minutes" ? "Minutes" : "Seconds")
-                          : "Reps"
-                      }
-                      value={row.reps}
-                      onChange={(e) => updateSetField(currentExercise.exercise_id, idx, "reps", e.target.value)}
-                    />
-                    <input
-                      className="set-rpe"
-                      inputMode="decimal"
-                      placeholder="RPE"
-                      value={row.rpe}
-                      onChange={(e) => updateSetField(currentExercise.exercise_id, idx, "rpe", e.target.value)}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="row" style={{ marginTop: 14 }}>
-                <button className="btn" onClick={() => removeSetRow(currentExercise.exercise_id)}>
-                  -
-                </button>
-                <button className="btn" onClick={() => addSetRow(currentExercise.exercise_id)}>
-                  +
-                </button>
-
-                <div style={{ flex: 1 }} />
-
-                <div className="muted" style={{ fontSize: 14 }}>
-                  {status === "saving" ? "Saving…" : status === "error" ? "Error — tap Next/Prev to retry" : ""}
-                </div>
-              </div>
-
-              <div className="row" style={{ marginTop: 16 }}>
-                <button className="btn" onClick={prevExercise} disabled={exerciseIndex === 0 || isSaving}>
-                  {isSaving ? "Saving…" : isError ? "Retry save" : "Prev"}
-                </button>
-
-                {isLast ? (
-                  <button className="btn btn-primary" onClick={finishWorkout} disabled={isSaving}>
-                    {isSaving ? "Saving…" : isError ? "Retry save" : "Finish workout"}
-                  </button>
-                ) : (
-                  <button className="btn btn-primary" onClick={nextExercise} disabled={isSaving}>
-                    {isSaving ? "Saving…" : isError ? "Retry save" : "Next"}
-                  </button>
-                )}
-
-                <button className="btn" onClick={() => setShowQuitModal(true)} disabled={isSaving}>
-                  Quit workout
-                </button>
-              </div>
-            </div>
-          )}
-        </>
+        <RunView
+          workouts={workouts}
+          selectedWorkoutId={selectedWorkoutId}
+          setSelectedWorkoutId={setSelectedWorkoutId}
+          selectedWorkout={selectedWorkout}
+          resetRunnerState={runner.resetRunnerState}
+          plansForSelectedWorkout={plansForSelectedWorkout}
+          selectedWorkoutName={selectedWorkoutName}
+          planLabel={planLabel}
+          startSession={runner.startSession}
+          startSessionFromPlan={runner.startSessionFromPlan}
+          sessionId={runner.sessionId}
+          currentExercise={runner.currentExercise}
+          runnerExercises={runner.runnerExercises}
+          runnerWorkoutName={runner.runnerWorkoutName}
+          exerciseIndex={runner.exerciseIndex}
+          setsByExercise={runner.setsByExercise}
+          updateSetField={runner.updateSetField}
+          addSetRow={runner.addSetRow}
+          removeSetRow={runner.removeSetRow}
+          lastTimeByExercise={runner.lastTimeByExercise}
+          formatPrimaryValue={formatPrimaryValue}
+          saveStatusByExercise={runner.saveStatusByExercise}
+          prevExercise={runner.prevExercise}
+          nextExercise={runner.nextExercise}
+          finishWorkout={runner.finishWorkout}
+          onQuitWorkout={() => setShowQuitModal(true)}
+        />
       )}
 
       {/* ---------------- MANAGE ---------------- */}
       {view === "manage" && (
-        <div className="card card-wide" style={{ marginTop: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Manage</h2>
-
-          <div className="row" style={{ marginBottom: 12 }}>
-            <button className={`btn ${manageTab === "exercises" ? "btn-primary" : ""}`} onClick={() => setManageTab("exercises")}>
-              Exercises
-            </button>
-            <button className={`btn ${manageTab === "workouts" ? "btn-primary" : ""}`} onClick={() => setManageTab("workouts")}>
-              Workouts
-            </button>
-            <button className={`btn ${manageTab === "history" ? "btn-primary" : ""}`} onClick={() => setManageTab("history")}>
-              History
-            </button>
-            <button className={`btn ${manageTab === "plans" ? "btn-primary" : ""}`} onClick={() => setManageTab("plans")}>
-              Plans
-            </button>
-          </div>
-
-          {/* ---------------- EXERCISES ---------------- */}
-          {manageTab === "exercises" && (
-            <div style={{ display: "grid", gap: 10 }}>
-              <h3 style={{ margin: 0 }}>Exercise library</h3>
-
-              {/* Create */}
-              <div className="card" style={{ display: "grid", gap: 10 }}>
-                <div className="muted">Add a new exercise</div>
-
-                <input
-                  className="input"
-                  placeholder="Exercise name (e.g., Dead Hang)"
-                  value={newExName}
-                  onChange={(e) => setNewExName(e.target.value)}
-                />
-
-                <div className="row wrap" style={{ gap: 10 }}>
-                  <select
-                    className="input"
-                    value={newExTrackingType}
-                    onChange={(e) => setNewExTrackingType(e.target.value)}
-                    style={{ minWidth: 220 }}
-                  >
-                    <option value="weight_reps">Weight + reps</option>
-                    <option value="time">Time</option>
-                  </select>
-
-                  {newExTrackingType === "time" && (
-                    <select
-                      className="input"
-                      value={newExTimeUnit}
-                      onChange={(e) => setNewExTimeUnit(e.target.value)}
-                      style={{ minWidth: 180 }}
-                    >
-                      <option value="seconds">Seconds</option>
-                      <option value="minutes">Minutes</option>
-                    </select>
-                  )}
-                </div>
-
-                <input
-                  className="input"
-                  placeholder="Info URL (optional)"
-                  value={newExUrl}
-                  onChange={(e) => setNewExUrl(e.target.value)}
-                />
-
-                <textarea
-                  className="input"
-                  placeholder="Notes (optional)"
-                  value={newExNotes}
-                  onChange={(e) => setNewExNotes(e.target.value)}
-                  rows={3}
-                />
-
-                <button className="btn btn-primary" onClick={createExercise} disabled={!newExName.trim()}>
-                  Add exercise
-                </button>
-              </div>
-
-              {/* List */}
-              <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 10 }}>
-                {exercises.length === 0 ? (
-                  <div className="muted">No exercises yet.</div>
-                ) : (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {exercises.map((ex) => (
-                      <div key={ex.id} className="row" style={{ justifyContent: "space-between", gap: 10 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 800 }}>{ex.name}</div>
-                          <div className="muted" style={{ fontSize: 12 }}>
-                            {ex.tracking_type === "time"
-                              ? `Tracking: time (${ex.time_unit || "seconds"})`
-                              : "Tracking: weight + reps"}
-                            {ex.info_url ? " • has link" : ""}
-                            {ex.notes ? " • has notes" : ""}
-                          </div>
-                        </div>
-
-                        <div className="row" style={{ gap: 8 }}>
-                          <button className="btn" onClick={() => openExerciseEditor(ex)}>
-                            Edit
-                          </button>
-                          <button className="btn" onClick={() => deleteExercise(ex.id)}>
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Editor */}
-              {editingExercise && (
-                <div className="card" style={{ display: "grid", gap: 10, marginTop: 10 }}>
-                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontWeight: 900 }}>Edit exercise</div>
-                    <button className="btn" onClick={closeExerciseEditor} disabled={exerciseEditStatus === "saving"}>
-                      Close
-                    </button>
-                  </div>
-
-                  <input className="input" value={exEditName} onChange={(e) => setExEditName(e.target.value)} />
-
-                  <div className="row wrap" style={{ gap: 10 }}>
-                    <select className="input" value={exEditTrackingType} onChange={(e) => setExEditTrackingType(e.target.value)}>
-                      <option value="weight_reps">Weight + reps</option>
-                      <option value="time">Time</option>
-                    </select>
-
-                    {exEditTrackingType === "time" && (
-                      <select className="input" value={exEditTimeUnit} onChange={(e) => setExEditTimeUnit(e.target.value)}>
-                        <option value="seconds">Seconds</option>
-                        <option value="minutes">Minutes</option>
-                      </select>
-                    )}
-                  </div>
-
-                  <input
-                    className="input"
-                    placeholder="Info URL (optional)"
-                    value={exEditUrl}
-                    onChange={(e) => setExEditUrl(e.target.value)}
-                  />
-
-                  <textarea
-                    className="input"
-                    placeholder="Notes (optional)"
-                    value={exEditNotes}
-                    onChange={(e) => setExEditNotes(e.target.value)}
-                    rows={3}
-                  />
-
-                  <div className="row" style={{ gap: 10, alignItems: "center" }}>
-                    <button className="btn btn-primary" onClick={saveExerciseEdits} disabled={exerciseEditStatus === "saving"}>
-                      {exerciseEditStatus === "saving" ? "Saving…" : "Save changes"}
-                    </button>
-
-                    <div className="muted" style={{ fontSize: 13 }}>
-                      {exerciseEditStatus === "saved" ? "Saved ✓" : exerciseEditStatus === "error" ? "Error — try again" : ""}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ---------------- WORKOUTS ---------------- */}
-          {manageTab === "workouts" && (
-            <div style={{ display: "grid", gap: 12 }}>
-              <h3 style={{ margin: 0 }}>Workouts</h3>
-
-              <div className="row">
-                <input
-                  placeholder="Workout name (e.g., Lift D)"
-                  value={newWorkoutName}
-                  onChange={(e) => setNewWorkoutName(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button className="btn btn-primary" onClick={createWorkout}>
-                  Add
-                </button>
-              </div>
-
-              <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 10 }}>
-                {workoutTemplates.length === 0 ? (
-                  <div className="muted">No workouts yet.</div>
-                ) : (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {workoutTemplates.map((w) => (
-                      <div key={w.id} className="row" style={{ justifyContent: "space-between" }}>
-                        <button className="btn btn-pill" onClick={() => openWorkoutEditor(w.id)}>
-                          {w.name}
-                        </button>
-
-                        <button className="btn" onClick={() => deleteWorkout(w.id)}>
-                          Delete
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {editingWorkout && (
-                <div className="card" style={{ marginTop: 8 }}>
-                  <div className="row" style={{ justifyContent: "space-between", marginBottom: 10, alignItems: "center" }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {!isRenamingWorkout ? (
-                        <>
-                          <div style={{ fontWeight: 800, fontSize: 18 }}>{editingWorkout.name}</div>
-                          <div className="muted" style={{ fontSize: 14 }}>
-                            Edit exercises + order (targets live on Plans)
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="muted tiny" style={{ marginBottom: 6 }}>Workout name</div>
-                          <input
-                            className="input"
-                            value={workoutNameDraft}
-                            autoFocus
-                            onChange={(e) => setWorkoutNameDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveRenameWorkout();
-                              if (e.key === "Escape") cancelRenameWorkout();
-                            }}
-                          />
-                          {renameWorkoutStatus === "error" && (
-                            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                              Rename failed — try again.
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    <div className="row" style={{ gap: 8 }}>
-                      {!isRenamingWorkout ? (
-                        <button className="btn" onClick={beginRenameWorkout}>
-                          Rename
-                        </button>
-                      ) : (
-                        <>
-                          <button className="btn" onClick={cancelRenameWorkout} disabled={renameWorkoutStatus === "saving"}>
-                            Cancel
-                          </button>
-                          <button className="btn btn-primary" onClick={saveRenameWorkout} disabled={renameWorkoutStatus === "saving"}>
-                            {renameWorkoutStatus === "saving" ? "Saving…" : "Save"}
-                          </button>
-                        </>
-                      )}
-
-                      <button className="btn" onClick={() => setEditingWorkout(null)} disabled={renameWorkoutStatus === "saving"}>
-                        Close
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-                    <div className="muted" style={{ fontSize: 14 }}>
-                      Add exercise
-                    </div>
-
-                    <div className="manage-add-row">
-                      <select
-                        className="input"
-                        value={addExerciseId}
-                        onChange={(e) => setAddExerciseId(e.target.value)}
-                      >
-                        <option value="">Select exercise…</option>
-                        {exercises.map((ex) => (
-                          <option key={ex.id} value={ex.id}>
-                            {ex.name}
-                          </option>
-                        ))}
-                      </select>
-
-                      <button className="btn btn-primary" onClick={addExerciseToWorkout} disabled={!addExerciseId}>
-                        Add
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 10 }}>
-                    {editingWorkout.exercises.length === 0 ? (
-                      <div className="muted">No exercises in this workout yet.</div>
-                    ) : (
-                      <div style={{ display: "grid", gap: 10 }}>
-                        {editingWorkout.exercises.map((ex, idx) => {
-
-                          return (
-                            <div key={ex.exercise_id} className="manage-ex-row">
-                              <div className="manage-ex-title">{ex.name}</div>
-
-                              <div className="manage-ex-fields">
-                                <div className="manage-ex-actions">
-                                  <button
-                                    className="btn"
-                                    disabled={idx === 0}
-                                    onClick={() => moveExercise(ex.exercise_id, "up")}
-                                  >
-                                    ↑
-                                  </button>
-                                  <button
-                                    className="btn"
-                                    disabled={idx === editingWorkout.exercises.length - 1}
-                                    onClick={() => moveExercise(ex.exercise_id, "down")}
-                                  >
-                                    ↓
-                                  </button>
-                                  <button className="btn" onClick={() => removeExerciseFromWorkout(ex.exercise_id)}>
-                                    Remove
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {manageSaveMsg && <div className="muted" style={{ marginTop: 10 }}>{manageSaveMsg}</div>}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ---------------- History ---------------- */}
-          {manageTab === "history" && (
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <div>
-                  <div style={{ fontWeight: 900, fontSize: 20 }}>History</div>
-                  <div className="muted" style={{ fontSize: 13 }}>
-                    {historyMode === "list" ? "Last 50 sessions" : "All sets (table)"}
-                  </div>
-                </div>
-
-                <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-                  {!selectedSession && (
-                    <>
-                      <button
-                        className={`btn ${historyMode === "list" ? "btn-primary" : ""}`}
-                        onClick={() => setHistoryMode("list")}
-                      >
-                        List
-                      </button>
-                      <button
-                        className={`btn ${historyMode === "table" ? "btn-primary" : ""}`}
-                        onClick={() => setHistoryMode("table")}
-                      >
-                        Table
-                      </button>
-                    </>
-                  )}
-
-                  {selectedSession && (
-                    <>
-                      <button className="btn" onClick={() => deleteSessionFromHistory(selectedSession.id)}>
-                        Delete session
-                      </button>
-                      <button className="btn" onClick={() => setSelectedSession(null)}>
-                        Back
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {historyError && (
-                <div className="card" style={{ border: "1px solid rgba(255,255,255,0.12)" }}>
-                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Error</div>
-                  <div className="muted">{historyError}</div>
-                </div>
-              )}
-
-              {!selectedSession && historyMode === "table" && (
-                <HistoryTable apiBase={API} />
-              )}
-
-              {!selectedSession && historyMode === "list" && (
-                <div className="card card-wide">
-                  {historyLoading ? (
-                    <div className="muted">Loading…</div>
-                  ) : sessions.length === 0 ? (
-                    <div className="muted">No sessions yet.</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {sessions.map((s) => (
-                        <button
-                          key={s.id}
-                          className="btn"
-                          style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: 14, textAlign: "left" }}
-                          onClick={() => openSession(s.id)}
-                        >
-                          <div style={{ display: "grid", gap: 2 }}>
-                            <div style={{ fontWeight: 800 }}>{s.workout_name}</div>
-                            <div className="muted" style={{ fontSize: 13 }}>
-                              {formatLocalDateTime(s.created_at)}
-                            </div>
-                          </div>
-
-                          <div className="muted" style={{ fontSize: 14 }}>
-                            ›
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedSession && (
-                <div className="card card-wide">
-                  <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 900, fontSize: 18 }}>{selectedSession.workout_name}</div>
-                    <div className="muted" style={{ fontSize: 13 }}>
-                      {formatLocalDateTime(selectedSession.created_at)} • Session #{selectedSession.id}
-                    </div>
-                  </div>
-
-                  {!selectedSession.exercises || selectedSession.exercises.length === 0 ? (
-                    <div className="muted">No sets logged.</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 12 }}>
-                      {selectedSession.exercises.map((ex) => (
-                        <div key={ex.exercise_id} className="card" style={{ padding: 12 }}>
-                          <div style={{ fontWeight: 900, marginBottom: 8 }}>{ex.name}</div>
-                          <div style={{ display: "grid", gap: 6 }}>
-                            {ex.sets.map((set) => (
-                              <div key={set.set_number} className="muted" style={{ display: "flex", justifyContent: "space-between" }}>
-                                <div>Set {set.set_number}</div>
-                                <div>
-                                  {set.weight ?? "—"} × {set.reps ?? "—"}
-                                  {set.rpe != null ? ` (RPE ${set.rpe})` : ""}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ---------------- Plans ---------------- */}
-          {manageTab === "plans" && (
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ fontWeight: 800, fontSize: 18 }}>Plans</div>
-
-              {/* Mode toggle */}
-              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                <button
-                  className={`btn ${plansMode === "list" ? "btn-primary" : ""}`}
-                  onClick={() => setPlansMode("list")}
-                >
-                  Plans
-                </button>
-                <button
-                  className={`btn ${plansMode === "import" ? "btn-primary" : ""}`}
-                  onClick={() => {
-                    setPlansMode("import");
-                    setEditingPlan(null); // optional: close editor when importing
-                  }}
-                >
-                  Import TSV
-                </button>
-              </div>
-
-              {/* IMPORT MODE */}
-              {plansMode === "import" ? (
-                <PlanImport
-                  apiBase={API}
-                  onImported={async () => {
-                    await loadPlans();
-                    setPlansMode("list");
-                  }}
-                />
-              ) : (
-                <>
-                  {/* LIST/EDIT MODE */}
-
-                  <div className="card" style={{ display: "grid", gap: 10 }}>
-                    <div className="muted">Create a planned workout from a workout shell</div>
-
-                    <select
-                      className="input"
-                      value={newPlanTemplateId}
-                      onChange={(e) => {
-                        setNewPlanTemplateId(e.target.value);
-                        setEditingPlan(null); // optional: close editor when filter changes
-                      }}
-                    >
-                      <option value="">Select workout…</option>
-                      {workouts.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    <input
-                      className="input"
-                      placeholder='Plan name (e.g., "Week 1", "Deload")'
-                      value={newPlanName}
-                      onChange={(e) => setNewPlanName(e.target.value)}
-                    />
-
-                    <button className="btn btn-primary" onClick={createPlan}>
-                      Create plan
-                    </button>
-                  </div>
-
-                  {/* FILTERED PLANS LIST */}
-                  {(() => {
-                    const selectedTemplateId = newPlanTemplateId ? Number(newPlanTemplateId) : null;
-
-                    const selectedWorkoutName = selectedTemplateId
-                      ? workouts.find((w) => Number(w.id) === selectedTemplateId)?.name
-                      : null;
-
-                    const visiblePlans = selectedTemplateId
-                      ? (plans || [])
-                          .filter((p) => Number(p.base_template_id) === selectedTemplateId)
-                          .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-                      : [];
-
-                    return (
-                      <div className="card" style={{ display: "grid", gap: 8 }}>
-                        <div className="muted">
-                          {selectedTemplateId
-                            ? `Plans for: ${selectedWorkoutName || "Selected workout"}`
-                            : "Select a workout above to see its plans"}
-                        </div>
-
-                        {!selectedTemplateId ? (
-                          <div className="muted" style={{ fontSize: 13 }}>
-                            Pick a workout in the dropdown to filter the list.
-                          </div>
-                        ) : visiblePlans.length === 0 ? (
-                          <div className="muted" style={{ fontSize: 13 }}>
-                            No plans yet for this workout.
-                          </div>
-                        ) : (
-                          <div className="row wrap">
-                            {visiblePlans.map((p) => (
-                              <button
-                                key={p.id}
-                                className="btn btn-pill"
-                                onClick={async () => {
-                                  const data = await fetch(`${API}/api/plans/${p.id}`).then((r) => r.json());
-                                  setEditingPlan(data);
-                                  setPlanNameDraft(data?.plan?.name ?? "");
-                                }}
-                              >
-                                {planDisplayName(p)}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  {editingPlan && (
-                    <div className="card" style={{ display: "grid", gap: 10 }}>
-                      <div className="row" style={{ alignItems: "center", gap: 10 }}>
-                        <div style={{ fontWeight: 900, fontSize: 18 }}>
-                          {planDisplayName(editingPlan.plan)}
-                        </div>
-                        <div style={{ flex: 1 }} />
-                        <button className="btn" onClick={() => deletePlan(editingPlan.plan.id)}>
-                          Delete plan
-                        </button>
-                        <button className="btn" onClick={() => setEditingPlan(null)}>
-                          Close
-                        </button>
-                      </div>
-
-                      <div className="card" style={{ display: "grid", gap: 8 }}>
-                        <div className="muted tiny">Rename plan</div>
-                        <input
-                          className="input"
-                          value={planNameDraft}
-                          onChange={(e) => setPlanNameDraft(e.target.value)}
-                          onBlur={() => renamePlan(editingPlan.plan.id, planNameDraft)}
-                          placeholder="Plan name"
-                        />
-                        <div className="muted" style={{ fontSize: 12 }}>
-                          Display will be:{" "}
-                          <b>
-                            {editingPlan.plan.template_name} — {planNameDraft || editingPlan.plan.name}
-                          </b>
-                        </div>
-                      </div>
-
-                      <div className="muted">Set plan targets (sets/reps/weight)</div>
-
-                      <div style={{ display: "grid", gap: 10 }}>
-                        {editingPlan.exercises.map((ex) => (
-                          <div key={ex.id} className="manage-ex-row">
-                            <div className="manage-ex-title">{ex.name}</div>
-
-                            <div className="manage-ex-fields">
-                              <div>
-                                <div className="muted tiny">Sets</div>
-                                <input
-                                  className="input"
-                                  inputMode="numeric"
-                                  value={ex.target_sets ?? ""}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    setEditingPlan((prev) => ({
-                                      ...prev,
-                                      exercises: prev.exercises.map((x) =>
-                                        x.id === ex.id ? { ...x, target_sets: v } : x
-                                      ),
-                                    }));
-                                  }}
-                                  onBlur={async () => {
-                                    const resp = await fetch(
-                                      `${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`,
-                                      {
-                                        method: "PATCH",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ target_sets: ex.target_sets }),
-                                      }
-                                    );
-                                    const data = await resp.json();
-                                    if (resp.ok) setEditingPlan(data);
-                                    else alert(data.error || "Save failed");
-                                  }}
-                                />
-                              </div>
-
-                              <div>
-                                <div className="muted tiny">Reps</div>
-                                <input
-                                  className="input"
-                                  value={ex.target_reps ?? ""}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    setEditingPlan((prev) => ({
-                                      ...prev,
-                                      exercises: prev.exercises.map((x) =>
-                                        x.id === ex.id ? { ...x, target_reps: v } : x
-                                      ),
-                                    }));
-                                  }}
-                                  onBlur={async () => {
-                                    const resp = await fetch(
-                                      `${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`,
-                                      {
-                                        method: "PATCH",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ target_reps: ex.target_reps }),
-                                      }
-                                    );
-                                    const data = await resp.json();
-                                    if (resp.ok) setEditingPlan(data);
-                                    else alert(data.error || "Save failed");
-                                  }}
-                                />
-                              </div>
-
-                              <div>
-                                <div className="muted tiny">Planned weight</div>
-                                <input
-                                  className="input"
-                                  inputMode="decimal"
-                                  placeholder="..."
-                                  value={ex.target_weight ?? ""}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    setEditingPlan((prev) => ({
-                                      ...prev,
-                                      exercises: prev.exercises.map((x) =>
-                                        x.id === ex.id ? { ...x, target_weight: v } : x
-                                      ),
-                                    }));
-                                  }}
-                                  onBlur={async () => {
-                                    const resp = await fetch(
-                                      `${API}/api/plans/${editingPlan.plan.id}/exercises/${ex.id}`,
-                                      {
-                                        method: "PATCH",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ target_weight: ex.target_weight }),
-                                      }
-                                    );
-                                    const data = await resp.json();
-                                    if (resp.ok) setEditingPlan(data);
-                                    else alert(data.error || "Save failed");
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        <ManageView
+          manageTab={manageTab}
+          setManageTab={setManageTab}
+          exercises={exercises}
+          newExName={newExName}
+          setNewExName={setNewExName}
+          newExTrackingType={newExTrackingType}
+          setNewExTrackingType={setNewExTrackingType}
+          newExTimeUnit={newExTimeUnit}
+          setNewExTimeUnit={setNewExTimeUnit}
+          newExUrl={newExUrl}
+          setNewExUrl={setNewExUrl}
+          newExNotes={newExNotes}
+          setNewExNotes={setNewExNotes}
+          editingExercise={editingExercise}
+          exEditName={exEditName}
+          setExEditName={setExEditName}
+          exEditTrackingType={exEditTrackingType}
+          setExEditTrackingType={setExEditTrackingType}
+          exEditTimeUnit={exEditTimeUnit}
+          setExEditTimeUnit={setExEditTimeUnit}
+          exEditUrl={exEditUrl}
+          setExEditUrl={setExEditUrl}
+          exEditNotes={exEditNotes}
+          setExEditNotes={setExEditNotes}
+          exerciseEditStatus={exerciseEditStatus}
+          createExercise={createExercise}
+          deleteExercise={deleteExercise}
+          openExerciseEditor={openExerciseEditor}
+          closeExerciseEditor={closeExerciseEditor}
+          saveExerciseEdits={saveExerciseEdits}
+          workoutTemplates={workoutTemplates}
+          newWorkoutName={newWorkoutName}
+          setNewWorkoutName={setNewWorkoutName}
+          createWorkout={createWorkout}
+          deleteWorkout={deleteWorkout}
+          editingWorkout={editingWorkout}
+          setEditingWorkout={setEditingWorkout}
+          openWorkoutEditor={openWorkoutEditor}
+          isRenamingWorkout={isRenamingWorkout}
+          beginRenameWorkout={beginRenameWorkout}
+          cancelRenameWorkout={cancelRenameWorkout}
+          workoutNameDraft={workoutNameDraft}
+          setWorkoutNameDraft={setWorkoutNameDraft}
+          renameWorkoutStatus={renameWorkoutStatus}
+          saveRenameWorkout={saveRenameWorkout}
+          addExerciseId={addExerciseId}
+          setAddExerciseId={setAddExerciseId}
+          addExerciseToWorkout={addExerciseToWorkout}
+          removeExerciseFromWorkout={removeExerciseFromWorkout}
+          moveExercise={moveExercise}
+          manageSaveMsg={manageSaveMsg}
+          historyMode={historyMode}
+          setHistoryMode={setHistoryMode}
+          historyError={historyError}
+          historyLoading={historyLoading}
+          sessions={sessions}
+          selectedSession={selectedSession}
+          setSelectedSession={setSelectedSession}
+          formatLocalDateTime={formatLocalDateTime}
+          openSession={openSession}
+          deleteSessionFromHistory={deleteSessionFromHistory}
+          plansMode={plansMode}
+          setPlansMode={setPlansMode}
+          apiBase={API}
+          workouts={workouts}
+          plans={plans}
+          loadPlans={loadPlans}
+          newPlanTemplateId={newPlanTemplateId}
+          setNewPlanTemplateId={setNewPlanTemplateId}
+          newPlanName={newPlanName}
+          setNewPlanName={setNewPlanName}
+          createPlan={createPlan}
+          editingPlan={editingPlan}
+          setEditingPlan={setEditingPlan}
+          planDisplayName={planDisplayName}
+          planNameDraft={planNameDraft}
+          setPlanNameDraft={setPlanNameDraft}
+          renamePlan={renamePlan}
+          deletePlan={deletePlan}
+        />
       )}
 
       {/* Quit modal */}

@@ -532,20 +532,63 @@ app.get("/api/exercises", async (req, res) => {
 });
 
 app.post("/api/exercises", async (req, res) => {
-  const { name } = req.body;
+  try {
+    const rawName = req.body.name;
+    const name = rawName && String(rawName).trim();
 
-  if (!name || !String(name).trim()) {
-    return res.status(400).json({ error: "name is required" });
+    if (!name) {
+      return res.status(400).json({ error: "name is required" });
+    }
+
+    // Optional fields from the client (with validation/defaults)
+    let { tracking_type, time_unit, info_url, notes } = req.body;
+
+    // Normalize / validate tracking_type
+    if (!tracking_type) {
+      tracking_type = "weight_reps";
+    } else {
+      tracking_type = String(tracking_type);
+      if (!["weight_reps", "time"].includes(tracking_type)) {
+        return res
+          .status(400)
+          .json({ error: "tracking_type must be 'weight_reps' or 'time'" });
+      }
+    }
+
+    // Normalize / validate time_unit
+    if (!time_unit) {
+      time_unit = "seconds";
+    } else {
+      time_unit = String(time_unit);
+      if (!["seconds", "minutes"].includes(time_unit)) {
+        return res
+          .status(400)
+          .json({ error: "time_unit must be 'seconds' or 'minutes'" });
+      }
+    }
+
+    // Normalize URL + notes to null/strings
+    info_url =
+      info_url == null || String(info_url).trim() === ""
+        ? null
+        : String(info_url).trim();
+    notes =
+      notes == null || String(notes).trim() === ""
+        ? null
+        : String(notes).trim();
+
+    const { rows } = await pool.query(
+      `insert into exercises (name, tracking_type, time_unit, info_url, notes)
+       values ($1, $2, $3, $4, $5)
+       returning id, name, tracking_type, time_unit, info_url, notes`,
+      [name, tracking_type, time_unit, info_url, notes]
+    );
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("CREATE EXERCISE ERROR:", err);
+    res.status(500).json({ error: String(err.message || err) });
   }
-
-  const { rows } = await pool.query(
-    `insert into exercises (name)
-     values ($1)
-     returning id, name`,
-    [String(name).trim()]
-  );
-
-  res.json(rows[0]);
 });
 
 app.delete("/api/exercises/:id", async (req, res) => {
