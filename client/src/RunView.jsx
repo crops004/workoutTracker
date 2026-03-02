@@ -241,6 +241,8 @@ export default function RunView({
   startSessionFromPlan,
   sessionId,
   currentExercise,
+  sessionWarmups,
+  toggleWarmupCompleted,
   runnerExercises,
   runnerWorkoutName,
   exerciseIndex,
@@ -259,15 +261,25 @@ export default function RunView({
   onQuitWorkout,
 }) {
   const hasActiveSession = Boolean(sessionId);
+  const hasWarmups = Array.isArray(sessionWarmups) && sessionWarmups.length > 0;
+  const isWarmupStep = hasActiveSession && !currentExercise && hasWarmups;
   const status = currentExercise
     ? saveStatusByExercise[currentExercise.exercise_id] || "idle"
     : "idle";
   const isSaving = status === "saving";
   const isError = status === "error";
-  const isLast = runnerExercises.length
+  const isLast = !isWarmupStep && runnerExercises.length
     ? exerciseIndex === runnerExercises.length - 1
     : false;
-  const nextExerciseName = !isLast ? runnerExercises[exerciseIndex + 1]?.name || "" : "";
+  const totalSteps = runnerExercises.length + (hasWarmups ? 1 : 0);
+  const stepNumber = isWarmupStep
+    ? 1
+    : exerciseIndex + 1 + (hasWarmups ? 1 : 0);
+  const nextExerciseName = isWarmupStep
+    ? runnerExercises[0]?.name || ""
+    : !isLast
+      ? runnerExercises[exerciseIndex + 1]?.name || ""
+      : "";
 
   return (
     <>
@@ -334,7 +346,7 @@ export default function RunView({
         </>
       )}
 
-      {hasActiveSession && !currentExercise && (
+      {hasActiveSession && !currentExercise && !isWarmupStep && (
         <div className="card" style={{ marginTop: 16 }}>
           {runnerExercises.length > 0 ? (
             <div className="muted">Loading active workout...</div>
@@ -351,7 +363,7 @@ export default function RunView({
         </div>
       )}
 
-      {sessionId && currentExercise && (
+      {sessionId && (currentExercise || isWarmupStep) && (
         <div className="card" style={{ marginTop: 16 }}>
           <div
             className="row"
@@ -359,7 +371,7 @@ export default function RunView({
           >
             <div style={{ opacity: 0.8, minWidth: 0 }}>
               {runnerWorkoutName ? `${runnerWorkoutName} - ` : ""}
-              Exercise {exerciseIndex + 1} / {runnerExercises.length}
+              Exercise {stepNumber} / {totalSteps}
             </div>
 
             <div className="row" style={{ gap: 8, flexShrink: 0 }}>
@@ -385,143 +397,192 @@ export default function RunView({
             </div>
           </div>
 
-          <ExerciseHeaderTools
-            key={currentExercise.exercise_id}
-            currentExercise={currentExercise}
-            saveExerciseInfoUrl={saveExerciseInfoUrl}
-          />
+          {currentExercise ? (
+            <>
+              <ExerciseHeaderTools
+                key={currentExercise.exercise_id}
+                currentExercise={currentExercise}
+                saveExerciseInfoUrl={saveExerciseInfoUrl}
+              />
 
-          {(() => {
-            const last = lastTimeByExercise[currentExercise.exercise_id];
-            if (!last) return null;
+              {(() => {
+                const last = lastTimeByExercise[currentExercise.exercise_id];
+                if (!last) return null;
 
-            if (!last.found) {
-              return (
-                <div
-                  className="muted"
-                  style={{ marginBottom: 18, fontSize: 13, opacity: 0.65 }}
-                >
-                  Last time: -
-                </div>
-              );
-            }
-
-            return (
-              <div style={{ marginBottom: 18 }}>
-                <div className="muted" style={{ fontWeight: 600, fontSize: 14, opacity: 0.8, marginBottom: 6 }}>
-                  Last time ({formatDateShort(last.performed_on)})
-                </div>
-
-                <div
-                  className="muted"
-                  style={{ display: "grid", gap: 4, fontSize: 14, opacity: 0.68, marginBottom: 8 }}
-                >
-                  {last.sets.map((s) => (
-                    <div key={s.set_number}>
-                      Set {s.set_number}: {s.weight ?? "-"} x{" "}
-                      {formatPrimaryValue(currentExercise, s.reps)}
-                      {s.rpe != null ? ` (RPE ${s.rpe})` : ""}
+                if (!last.found) {
+                  return (
+                    <div
+                      className="muted"
+                      style={{ marginBottom: 18, fontSize: 13, opacity: 0.65 }}
+                    >
+                      Last time: -
                     </div>
-                  ))}
+                  );
+                }
+
+                return (
+                  <div style={{ marginBottom: 18 }}>
+                    <div
+                      className="muted"
+                      style={{ fontWeight: 600, fontSize: 14, opacity: 0.8, marginBottom: 6 }}
+                    >
+                      Last time ({formatDateShort(last.performed_on)})
+                    </div>
+
+                    <div
+                      className="muted"
+                      style={{ display: "grid", gap: 4, fontSize: 14, opacity: 0.68, marginBottom: 8 }}
+                    >
+                      {last.sets.map((s) => (
+                        <div key={s.set_number}>
+                          Set {s.set_number}: {s.weight ?? "-"} x{" "}
+                          {formatPrimaryValue(currentExercise, s.reps)}
+                          {s.rpe != null ? ` (RPE ${s.rpe})` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div style={{ display: "grid", gap: 10 }}>
+                {(setsByExercise[currentExercise.exercise_id] || []).map((row, idx) => (
+                  <div className="set-row" key={row.set_number}>
+                    <div className="set-label" style={{ fontWeight: 700 }}>
+                      Set {row.set_number}
+                    </div>
+
+                    <input
+                      className="set-weight"
+                      inputMode="decimal"
+                      placeholder="Weight"
+                      value={row.weight}
+                      onChange={(e) =>
+                        updateSetField(
+                          currentExercise.exercise_id,
+                          idx,
+                          "weight",
+                          e.target.value
+                        )
+                      }
+                    />
+                    <input
+                      className="set-reps"
+                      inputMode="numeric"
+                      placeholder={
+                        currentExercise.tracking_type === "time"
+                          ? currentExercise.time_unit === "minutes"
+                            ? "Minutes"
+                            : "Seconds"
+                          : "Reps"
+                      }
+                      value={row.reps}
+                      onChange={(e) =>
+                        updateSetField(
+                          currentExercise.exercise_id,
+                          idx,
+                          "reps",
+                          e.target.value
+                        )
+                      }
+                    />
+                    <input
+                      className="set-rpe"
+                      inputMode="decimal"
+                      placeholder="RPE"
+                      value={row.rpe}
+                      onChange={(e) =>
+                        updateSetField(
+                          currentExercise.exercise_id,
+                          idx,
+                          "rpe",
+                          e.target.value
+                        )
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="row" style={{ marginTop: 14 }}>
+                <button
+                  className="btn"
+                  onClick={() => removeSetRow(currentExercise.exercise_id)}
+                >
+                  -
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => addSetRow(currentExercise.exercise_id)}
+                >
+                  +
+                </button>
+
+                <div style={{ flex: 1 }} />
+
+                <div className="muted" style={{ fontSize: 14 }}>
+                  {status === "saving"
+                    ? "Saving..."
+                    : status === "error"
+                    ? "Error - tap Next/Prev to retry"
+                    : ""}
                 </div>
               </div>
-            );
-          })()}
-
-          <div style={{ display: "grid", gap: 10 }}>
-            {(setsByExercise[currentExercise.exercise_id] || []).map(
-              (row, idx) => (
-                <div className="set-row" key={row.set_number}>
-                  <div className="set-label" style={{ fontWeight: 700 }}>
-                    Set {row.set_number}
-                  </div>
-
-                  <input
-                    className="set-weight"
-                    inputMode="decimal"
-                    placeholder="Weight"
-                    value={row.weight}
-                    onChange={(e) =>
-                      updateSetField(
-                        currentExercise.exercise_id,
-                        idx,
-                        "weight",
-                        e.target.value
-                      )
-                    }
-                  />
-                  <input
-                    className="set-reps"
-                    inputMode="numeric"
-                    placeholder={
-                      currentExercise.tracking_type === "time"
-                        ? currentExercise.time_unit === "minutes"
-                          ? "Minutes"
-                          : "Seconds"
-                        : "Reps"
-                    }
-                    value={row.reps}
-                    onChange={(e) =>
-                      updateSetField(
-                        currentExercise.exercise_id,
-                        idx,
-                        "reps",
-                        e.target.value
-                      )
-                    }
-                  />
-                  <input
-                    className="set-rpe"
-                    inputMode="decimal"
-                    placeholder="RPE"
-                    value={row.rpe}
-                    onChange={(e) =>
-                      updateSetField(
-                        currentExercise.exercise_id,
-                        idx,
-                        "rpe",
-                        e.target.value
-                      )
-                    }
-                  />
-                </div>
-              )
-            )}
-          </div>
-
-          <div className="row" style={{ marginTop: 14 }}>
-            <button
-              className="btn"
-              onClick={() => removeSetRow(currentExercise.exercise_id)}
-            >
-              -
-            </button>
-            <button
-              className="btn"
-              onClick={() => addSetRow(currentExercise.exercise_id)}
-            >
-              +
-            </button>
-
-            <div style={{ flex: 1 }} />
-
-            <div className="muted" style={{ fontSize: 14 }}>
-              {status === "saving"
-                ? "Saving..."
-                : status === "error"
-                ? "Error - tap Next/Prev to retry"
-                : ""}
+            </>
+          ) : (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontWeight: 900, fontSize: 26, marginBottom: 14 }}>Warm-up</div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {sessionWarmups.map((warmup) => (
+                  <label
+                    key={warmup.exercise_id}
+                    className="row"
+                    style={{
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "6px 0",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(warmup.completed)}
+                      onChange={async (e) => {
+                        try {
+                          await toggleWarmupCompleted(warmup.exercise_id, e.target.checked);
+                        } catch (err) {
+                          alert(err.message || "Failed to update warm-up");
+                        }
+                      }}
+                      style={{ width: 16, height: 16, margin: 0, accentColor: "#8aa0ff" }}
+                    />
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        opacity: warmup.completed ? 0.6 : 0.95,
+                        textDecoration: warmup.completed ? "line-through" : "none",
+                      }}
+                    >
+                      {warmup.name}
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="row" style={{ marginTop: 24, justifyContent: "space-between", alignItems: "center" }}>
-            <button
-              className="btn"
-              onClick={prevExercise}
-              disabled={exerciseIndex === 0 || isSaving}
-            >
-              {isSaving ? "Saving..." : isError ? "Retry save" : "Prev"}
-            </button>
+            {isWarmupStep ? (
+              <div />
+            ) : (
+              <button
+                className="btn"
+                onClick={prevExercise}
+                disabled={exerciseIndex === 0 || isSaving}
+              >
+                {isSaving ? "Saving..." : isError ? "Retry save" : "Prev"}
+              </button>
+            )}
 
             <div className="row" style={{ gap: 8, marginLeft: 10 }}>
               {nextExerciseName && (
@@ -539,11 +600,11 @@ export default function RunView({
                   Next: {nextExerciseName}
                 </div>
               )}
-              {!isLast && (
+              {(isWarmupStep || !isLast) && (
                 <button
                   className="btn btn-primary"
                   onClick={nextExercise}
-                  disabled={isSaving}
+                  disabled={isSaving || (isWarmupStep && runnerExercises.length === 0)}
                 >
                   {isSaving ? "Saving..." : isError ? "Retry save" : "Next"}
                 </button>

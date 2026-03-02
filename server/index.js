@@ -33,6 +33,18 @@ function asInt(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function asBool(v) {
+  if (v === true || v === false) return v;
+  if (v === 1 || v === "1") return true;
+  if (v === 0 || v === "0") return false;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true") return true;
+    if (s === "false") return false;
+  }
+  return null;
+}
+
 function parseISODateOnly(s) {
   // "YYYY-MM-DD" -> Date at UTC midnight
   if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
@@ -51,6 +63,44 @@ function startOfWeekMonday(dateUtc) {
   const monday = new Date(dateUtc);
   monday.setUTCDate(monday.getUTCDate() + diff);
   return monday;
+}
+
+async function runStartupMigrations() {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(`
+      alter table exercises
+      add column if not exists warmup boolean not null default false
+    `);
+
+    await client.query(`
+      create table if not exists workout_session_warmups (
+        session_id int not null references workout_sessions(id) on delete cascade,
+        exercise_id int not null references exercises(id),
+        warmup_order int not null,
+        completed boolean not null default false,
+        completed_at timestamptz null,
+        created_at timestamptz not null default now(),
+        primary key (session_id, exercise_id),
+        unique (session_id, warmup_order),
+        check (warmup_order >= 1)
+      )
+    `);
+
+    await client.query(`
+      create index if not exists idx_workout_session_warmups_session_id
+      on workout_session_warmups(session_id)
+    `);
+
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function getWorkoutTemplate(pool, workoutId) {
@@ -172,6 +222,7 @@ app.get("/api/workouts/:id", async (req, res) => {
 
 // Start a session (from a template OR a plan)
 app.post("/api/sessions", async (req, res) => {
+  const client = await pool.connect();
   try {
     const tmplIn = asInt(req.body.workout_template_id);
     const planIn = asInt(req.body.plan_id);
@@ -190,7 +241,7 @@ app.post("/api/sessions", async (req, res) => {
     let planId = planIn ?? null;
 
     if (planId) {
-      const plan = await pool.query(
+      const plan = await client.query(
         `select id, base_template_id
          from workout_plans
          where id = $1::int`,
@@ -205,22 +256,72 @@ app.post("/api/sessions", async (req, res) => {
       if (!templateId) return res.status(500).json({ error: "Plan has invalid base_template_id" });
     }
 
-    const { rows } = await pool.query(
+    await client.query("BEGIN");
+
+    const { rows } = await client.query(
       `insert into workout_sessions (workout_template_id, plan_id, workout_calendar_id, performed_on)
        values ($1::int, $2::int, $3::int, $4)
        returning id`,
       [templateId, planId, calIn, date]
     );
+    const sessionId = rows[0].id;
+
+    // Seed workout warmups: Bike + two random warmups (if available)
+    const bike = await client.query(
+      `select id
+       from exercises
+       where warmup = true
+         and lower(name) like '%bike%'
+       order by name asc, id asc
+       limit 1`
+    );
+
+    const bikeId = bike.rows[0]?.id ?? null;
+    const randomLimit = bikeId ? 2 : 3;
+    const others = await client.query(
+      `select id
+       from exercises
+       where warmup = true
+         and ($1::int is null or id <> $1::int)
+       order by random()
+       limit $2::int`,
+      [bikeId, randomLimit]
+    );
+
+    const pickedIds = [];
+    if (bikeId) pickedIds.push(bikeId);
+    for (const row of others.rows) {
+      const id = asInt(row.id);
+      if (!id || pickedIds.includes(id)) continue;
+      pickedIds.push(id);
+    }
+
+    for (let i = 0; i < pickedIds.length; i++) {
+      await client.query(
+        `insert into workout_session_warmups (session_id, exercise_id, warmup_order)
+         values ($1::int, $2::int, $3::int)`,
+        [sessionId, pickedIds[i], i + 1]
+      );
+    }
+
+    await client.query("COMMIT");
 
     res.json({
-      session_id: rows[0].id,
+      session_id: sessionId,
       workout_template_id: templateId,
       plan_id: planId,
       workout_calendar_id: calIn ?? null,
     });
   } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore rollback errors
+    }
     console.error("START SESSION ERROR:", err);
     res.status(500).json({ error: String(err.message || err) });
+  } finally {
+    client.release();
   }
 });
 
@@ -276,12 +377,29 @@ app.get("/api/sessions/:id/runner", async (req, res) => {
     }
 
     const session = s.rows[0];
+    const warmups = await pool.query(
+      `select
+         wsw.exercise_id,
+         e.name,
+         wsw.warmup_order,
+         wsw.completed,
+         wsw.completed_at
+       from workout_session_warmups wsw
+       join exercises e on e.id = wsw.exercise_id
+       where wsw.session_id = $1::int
+       order by wsw.warmup_order asc`,
+      [sessionId]
+    );
 
     if (session.plan_id) {
       const plan = await pool.query(
-        `select id, name
-         from workout_plans
-         where id = $1::int`,
+        `select
+           p.id,
+           p.name as plan_name,
+           wt.name as workout_name
+         from workout_plans p
+         left join workout_templates wt on wt.id = p.base_template_id
+         where p.id = $1::int`,
         [session.plan_id]
       );
 
@@ -309,8 +427,9 @@ app.get("/api/sessions/:id/runner", async (req, res) => {
 
         return res.json({
           session,
-          workout_name: plan.rows[0].name,
+          workout_name: plan.rows[0].workout_name || plan.rows[0].plan_name,
           exercises: ex.rows,
+          warmups: warmups.rows,
         });
       }
     }
@@ -349,9 +468,45 @@ app.get("/api/sessions/:id/runner", async (req, res) => {
       session,
       workout_name: tmpl.rows[0]?.name ?? "Workout",
       exercises: ex.rows,
+      warmups: warmups.rows,
     });
   } catch (err) {
     console.error("RUNNER LOAD ERROR:", err);
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+app.patch("/api/sessions/:id/warmups/:exerciseId", async (req, res) => {
+  try {
+    const sessionId = asInt(req.params.id);
+    const exerciseId = asInt(req.params.exerciseId);
+    if (!sessionId || !exerciseId) {
+      return res.status(400).json({ error: "Invalid session or exercise id" });
+    }
+
+    const completed = asBool(req.body?.completed);
+    if (completed === null) {
+      return res.status(400).json({ error: "completed must be true or false" });
+    }
+
+    const { rows } = await pool.query(
+      `update workout_session_warmups
+       set
+         completed = $1::boolean,
+         completed_at = case when $1::boolean then now() else null end
+       where session_id = $2::int
+         and exercise_id = $3::int
+       returning session_id, exercise_id, warmup_order, completed, completed_at`,
+      [completed, sessionId, exerciseId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "Warmup item not found" });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("PATCH WARMUP ERROR:", err);
     res.status(500).json({ error: String(err.message || err) });
   }
 });
@@ -455,21 +610,30 @@ app.patch("/api/exercises/:id", async (req, res) => {
     const time_unit =
       req.body.time_unit == null ? null : String(req.body.time_unit);
 
-    const info_url =
-      req.body.info_url == null || String(req.body.info_url).trim() === ""
-        ? null
-        : String(req.body.info_url).trim();
+    const infoUrlProvided = Object.prototype.hasOwnProperty.call(req.body, "info_url");
+    const info_url = infoUrlProvided
+      ? (req.body.info_url == null || String(req.body.info_url).trim() === ""
+          ? null
+          : String(req.body.info_url).trim())
+      : null;
 
-    const notes =
-      req.body.notes == null || String(req.body.notes).trim() === ""
-        ? null
-        : String(req.body.notes).trim();
+    const notesProvided = Object.prototype.hasOwnProperty.call(req.body, "notes");
+    const notes = notesProvided
+      ? (req.body.notes == null || String(req.body.notes).trim() === ""
+          ? null
+          : String(req.body.notes).trim())
+      : null;
+    const warmupRaw = req.body.warmup;
+    const warmup = warmupRaw === undefined ? null : asBool(warmupRaw);
 
     if (tracking_type != null && !["weight_reps", "time"].includes(tracking_type)) {
       return res.status(400).json({ error: "tracking_type must be 'weight_reps' or 'time'" });
     }
     if (time_unit != null && !["seconds", "minutes"].includes(time_unit)) {
       return res.status(400).json({ error: "time_unit must be 'seconds' or 'minutes'" });
+    }
+    if (warmupRaw !== undefined && warmup === null) {
+      return res.status(400).json({ error: "warmup must be true or false" });
     }
 
     const { rows } = await pool.query(
@@ -478,16 +642,20 @@ app.patch("/api/exercises/:id", async (req, res) => {
          name = coalesce($1, name),
          tracking_type = coalesce($2, tracking_type),
          time_unit = coalesce($3, time_unit),
-         info_url = $4,
-         notes = $5
-       where id = $6::int
-       returning id, name, tracking_type, time_unit, info_url, notes`,
+         info_url = case when $4::boolean then $5 else info_url end,
+         notes = case when $6::boolean then $7 else notes end,
+         warmup = coalesce($8::boolean, warmup)
+       where id = $9::int
+       returning id, name, tracking_type, time_unit, info_url, notes, warmup`,
       [
         name && name !== "" ? name : null,
         tracking_type,
         time_unit,
+        infoUrlProvided,
         info_url,
+        notesProvided,
         notes,
+        warmup,
         id,
       ]
     );
@@ -524,7 +692,7 @@ app.delete("/api/sessions/:id", async (req, res) => {
 
 app.get("/api/exercises", async (req, res) => {
   const { rows } = await pool.query(
-    `select id, name, tracking_type, time_unit, info_url, notes
+    `select id, name, tracking_type, time_unit, info_url, notes, warmup
      from exercises
      order by name asc`
   );
@@ -541,7 +709,7 @@ app.post("/api/exercises", async (req, res) => {
     }
 
     // Optional fields from the client (with validation/defaults)
-    let { tracking_type, time_unit, info_url, notes } = req.body;
+    let { tracking_type, time_unit, info_url, notes, warmup } = req.body;
 
     // Normalize / validate tracking_type
     if (!tracking_type) {
@@ -576,12 +744,20 @@ app.post("/api/exercises", async (req, res) => {
       notes == null || String(notes).trim() === ""
         ? null
         : String(notes).trim();
+    if (warmup === undefined) {
+      warmup = false;
+    } else {
+      warmup = asBool(warmup);
+      if (warmup === null) {
+        return res.status(400).json({ error: "warmup must be true or false" });
+      }
+    }
 
     const { rows } = await pool.query(
-      `insert into exercises (name, tracking_type, time_unit, info_url, notes)
-       values ($1, $2, $3, $4, $5)
-       returning id, name, tracking_type, time_unit, info_url, notes`,
-      [name, tracking_type, time_unit, info_url, notes]
+      `insert into exercises (name, tracking_type, time_unit, info_url, notes, warmup)
+       values ($1, $2, $3, $4, $5, $6::boolean)
+       returning id, name, tracking_type, time_unit, info_url, notes, warmup`,
+      [name, tracking_type, time_unit, info_url, notes, warmup]
     );
 
     res.status(201).json(rows[0]);
@@ -598,13 +774,21 @@ app.delete("/api/exercises/:id", async (req, res) => {
     `select 1
      from workout_template_exercises
      where exercise_id = $1::int
+     union all
+     select 1
+     from workout_plan_exercises
+     where exercise_id = $1::int
+     union all
+     select 1
+     from workout_session_warmups
+     where exercise_id = $1::int
      limit 1`,
     [id]
   );
 
   if (used.rows.length > 0) {
     return res.status(409).json({
-      error: "Exercise is used in a workout. Remove it from workouts first.",
+      error: "Exercise is in use by workouts, plans, or session warmups. Remove usages first.",
     });
   }
 
@@ -1182,9 +1366,6 @@ app.delete("/api/calendar/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-const port = process.env.PORT || 3001;
-app.listen(port, () => console.log(`API listening on ${port}`));
-
 // --- Workout history with sets ---
 app.get("/api/history/sets", async (req, res) => {
   try {
@@ -1515,3 +1696,16 @@ app.post("/api/import/plans", async (req, res) => {
     client.release();
   }
 });
+
+async function startServer() {
+  try {
+    await runStartupMigrations();
+    const port = process.env.PORT || 3001;
+    app.listen(port, () => console.log(`API listening on ${port}`));
+  } catch (err) {
+    console.error("STARTUP ERROR:", err);
+    process.exit(1);
+  }
+}
+
+startServer();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 function lsGet(key, fallback = null) {
   try {
@@ -39,6 +39,7 @@ export function useRunner(apiBase) {
   const [lastTimeByExercise, setLastTimeByExercise] = useState({});
   const [runnerWorkoutName, setRunnerWorkoutName] = useState("");
   const [runnerExercises, setRunnerExercises] = useState([]);
+  const [sessionWarmups, setSessionWarmups] = useState([]);
 
   const makePlannedSetsForExercise = useCallback((ex) => {
     const n = Number(ex.target_sets || 3);
@@ -78,24 +79,27 @@ export function useRunner(apiBase) {
           alert(data.error || "Failed to load runner");
           return;
         }
+
+        const baseExercises = Array.isArray(data.exercises) ? data.exercises : [];
+        const warmups = Array.isArray(data.warmups) ? data.warmups : [];
+
         setRunnerWorkoutName(data.workout_name || "");
-        setRunnerExercises(Array.isArray(data.exercises) ? data.exercises : []);
-        const first = (data.exercises || [])[0];
-        if (first) {
-          setSetsByExercise((prev) => {
-            if (prev[first.exercise_id]?.length) return prev;
-            const n = Number(first.target_sets || 3);
-            const w = first.target_weight == null ? "" : String(first.target_weight);
-            const reps = repsSeedFromTarget(first.target_reps);
-            const rows = Array.from({ length: n }, (_, i) => ({
-              set_number: i + 1,
-              weight: w,
-              reps,
-              rpe: "",
-            }));
-            return { ...prev, [first.exercise_id]: rows };
-          });
-        }
+        setRunnerExercises(baseExercises);
+        setSessionWarmups(warmups);
+
+        setExerciseIndex((prev) => {
+          const hasWarmups = warmups.length > 0;
+          if (baseExercises.length === 0) return hasWarmups ? -1 : 0;
+
+          if (hasWarmups) {
+            if (typeof prev !== "number") return -1;
+            if (prev < -1) return -1;
+            return Math.min(prev, baseExercises.length - 1);
+          }
+
+          if (typeof prev !== "number") return 0;
+          return Math.min(Math.max(prev, 0), baseExercises.length - 1);
+        });
       } catch (e) {
         console.error("Failed to load runner", e);
         alert("Failed to load runner");
@@ -120,26 +124,32 @@ export function useRunner(apiBase) {
 
   const currentExercise = useMemo(() => {
     if (!runnerExercises?.length) return null;
+    if (exerciseIndex < 0) return null;
     return runnerExercises[exerciseIndex] || null;
   }, [runnerExercises, exerciseIndex]);
 
-  function ensureSetRows(exerciseId, count = 3) {
+  const isWarmupStep = useMemo(() => {
+    return Boolean(sessionId) && sessionWarmups.length > 0 && exerciseIndex < 0;
+  }, [sessionId, sessionWarmups, exerciseIndex]);
+
+  const ensureSetRows = useCallback((exerciseId, count = 3) => {
     setSetsByExercise((prev) => {
       if (prev[exerciseId]?.length) return prev;
       return { ...prev, [exerciseId]: makeEmptySets(count) };
     });
-  }
+  }, []);
 
   useEffect(() => {
     if (!currentExercise) return;
     ensureSetRows(currentExercise.exercise_id, currentExercise.target_sets || 3);
-  }, [exerciseIndex, sessionId, currentExercise]);
+  }, [exerciseIndex, sessionId, currentExercise, ensureSetRows]);
 
   const updateSetField = useCallback((exerciseId, setIdx, field, value) => {
     setSetsByExercise((prev) => {
       const copy = { ...prev };
       const rows = copy[exerciseId] ? [...copy[exerciseId]] : [];
-      rows[setIdx] = { ...rows[setIdx], [field]: value };
+      const base = rows[setIdx] || { set_number: setIdx + 1, weight: "", reps: "", rpe: "" };
+      rows[setIdx] = { ...base, [field]: value };
       copy[exerciseId] = rows;
       return copy;
     });
@@ -170,6 +180,7 @@ export function useRunner(apiBase) {
     setLastTimeByExercise({});
     setRunnerWorkoutName("");
     setRunnerExercises([]);
+    setSessionWarmups([]);
     lsDel("wt_activeSessionId");
     lsDel("wt_activeWorkoutId");
     lsDel("wt_activeExerciseIndex");
@@ -227,19 +238,24 @@ export function useRunner(apiBase) {
   );
 
   const prevExercise = useCallback(async () => {
+    if (isWarmupStep) return;
     if (!currentExercise) return;
     const ok = await saveExercise(currentExercise);
     if (!ok) return;
-    setExerciseIndex((i) => Math.max(i - 1, 0));
-  }, [currentExercise, saveExercise]);
+    setExerciseIndex((i) => Math.max(i - 1, sessionWarmups.length > 0 ? -1 : 0));
+  }, [isWarmupStep, currentExercise, saveExercise, sessionWarmups.length]);
 
   const nextExercise = useCallback(async () => {
+    if (isWarmupStep) {
+      if (runnerExercises.length > 0) setExerciseIndex(0);
+      return;
+    }
     if (!currentExercise) return;
     const ok = await saveExercise(currentExercise);
     if (!ok) return;
     const lastIdx = runnerExercises.length - 1;
     setExerciseIndex((i) => Math.min(i + 1, lastIdx));
-  }, [currentExercise, runnerExercises.length, saveExercise]);
+  }, [isWarmupStep, currentExercise, runnerExercises.length, saveExercise]);
 
   const finishWorkout = useCallback(async () => {
     if (!currentExercise) return;
@@ -270,10 +286,10 @@ export function useRunner(apiBase) {
         return;
       }
       setSessionId(data.session_id);
-      setExerciseIndex(0);
+      setExerciseIndex(-1);
       lsSet("wt_activeSessionId", data.session_id);
       lsSet("wt_activeWorkoutId", workoutTemplateId);
-      lsSet("wt_activeExerciseIndex", 0);
+      lsSet("wt_activeExerciseIndex", -1);
       await loadRunner(data.session_id);
     },
     [apiBase, loadRunner]
@@ -296,10 +312,10 @@ export function useRunner(apiBase) {
         return;
       }
       setSessionId(data.session_id);
-      setExerciseIndex(0);
+      setExerciseIndex(-1);
       lsSet("wt_activeSessionId", data.session_id);
       lsSet("wt_activeWorkoutCalendarId", data.workout_calendar_id ?? null);
-      lsSet("wt_activeExerciseIndex", 0);
+      lsSet("wt_activeExerciseIndex", -1);
       await loadRunner(data.session_id);
     },
     [apiBase, loadRunner]
@@ -338,10 +354,39 @@ export function useRunner(apiBase) {
             : ex
         )
       );
-
       return data;
     },
     [apiBase]
+  );
+
+  const toggleWarmupCompleted = useCallback(
+    async (exerciseId, completed) => {
+      if (!sessionId) return false;
+
+      const resp = await fetch(`${apiBase}/api/sessions/${sessionId}/warmups/${exerciseId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.error || "Failed to update warmup status");
+      }
+
+      setSessionWarmups((prev) =>
+        prev.map((w) =>
+          Number(w.exercise_id) === Number(exerciseId)
+            ? {
+                ...w,
+                completed: Boolean(data.completed),
+                completed_at: data.completed_at ?? null,
+              }
+            : w
+        )
+      );
+      return true;
+    },
+    [apiBase, sessionId]
   );
 
   useEffect(() => {
@@ -395,13 +440,16 @@ export function useRunner(apiBase) {
     lastTimeByExercise,
     runnerWorkoutName,
     runnerExercises,
+    sessionWarmups,
     currentExercise,
+    isWarmupStep,
     loadRunner,
     resetRunnerState,
     startSession,
     startSessionFromPlan,
     quitAndDeleteSession,
     saveExerciseInfoUrl,
+    toggleWarmupCompleted,
     updateSetField,
     addSetRow,
     removeSetRow,

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import HistoryTable from "./HistoryTable";
 import PlanImport from "./PlanImport";
 
@@ -16,6 +17,8 @@ export default function ManageView({
   setNewExUrl,
   newExNotes,
   setNewExNotes,
+  newExWarmup,
+  setNewExWarmup,
   editingExercise,
   exEditName,
   setExEditName,
@@ -27,6 +30,8 @@ export default function ManageView({
   setExEditUrl,
   exEditNotes,
   setExEditNotes,
+  exEditWarmup,
+  setExEditWarmup,
   exerciseEditStatus,
   createExercise,
   deleteExercise,
@@ -86,6 +91,21 @@ export default function ManageView({
   renamePlan,
   deletePlan,
 }) {
+  const [showAddExerciseModal, setShowAddExerciseModal] = useState(false);
+  const [showAddWorkoutModal, setShowAddWorkoutModal] = useState(false);
+
+  async function deleteEditingExercise() {
+    if (!editingExercise) return;
+    await deleteExercise(editingExercise.id);
+    closeExerciseEditor();
+  }
+
+  async function handleCreateWorkout() {
+    if (!newWorkoutName.trim()) return;
+    await createWorkout();
+    setShowAddWorkoutModal(false);
+  }
+
   return (
     <div className="card card-wide" style={{ marginTop: 16 }}>
       <h2 style={{ marginTop: 0 }}>Manage</h2>
@@ -119,56 +139,9 @@ export default function ManageView({
 
       {manageTab === "exercises" && (
         <div style={{ display: "grid", gap: 10 }}>
-          <h3 style={{ margin: 0 }}>Exercise library</h3>
-
-          <div className="card" style={{ display: "grid", gap: 10 }}>
-            <div className="muted">Add a new exercise</div>
-            <input
-              className="input"
-              placeholder="Exercise name (e.g., Dead Hang)"
-              value={newExName}
-              onChange={(e) => setNewExName(e.target.value)}
-            />
-            <div className="row wrap" style={{ gap: 10 }}>
-              <select
-                className="input"
-                value={newExTrackingType}
-                onChange={(e) => setNewExTrackingType(e.target.value)}
-                style={{ minWidth: 220 }}
-              >
-                <option value="weight_reps">Weight + reps</option>
-                <option value="time">Time</option>
-              </select>
-              {newExTrackingType === "time" && (
-                <select
-                  className="input"
-                  value={newExTimeUnit}
-                  onChange={(e) => setNewExTimeUnit(e.target.value)}
-                  style={{ minWidth: 180 }}
-                >
-                  <option value="seconds">Seconds</option>
-                  <option value="minutes">Minutes</option>
-                </select>
-              )}
-            </div>
-            <input
-              className="input"
-              placeholder="Info URL (optional)"
-              value={newExUrl}
-              onChange={(e) => setNewExUrl(e.target.value)}
-            />
-            <textarea
-              className="input"
-              placeholder="Notes (optional)"
-              value={newExNotes}
-              onChange={(e) => setNewExNotes(e.target.value)}
-              rows={3}
-            />
-            <button
-              className="btn btn-primary"
-              onClick={createExercise}
-              disabled={!newExName.trim()}
-            >
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0 }}>Exercise library</h3>
+            <button className="btn btn-primary" onClick={() => setShowAddExerciseModal(true)}>
               Add exercise
             </button>
           </div>
@@ -179,99 +152,181 @@ export default function ManageView({
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
                 {exercises.map((ex) => (
-                  <div
+                  <button
                     key={ex.id}
-                    className="row"
-                    style={{ justifyContent: "space-between", gap: 10 }}
+                    className="btn"
+                    onClick={() => openExerciseEditor(ex)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      fontWeight: 800,
+                      justifyContent: "flex-start",
+                    }}
                   >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 800 }}>{ex.name}</div>
-                      <div className="muted" style={{ fontSize: 12 }}>
-                        {ex.tracking_type === "time"
-                          ? `Tracking: time (${ex.time_unit || "seconds"})`
-                          : "Tracking: weight + reps"}
-                        {ex.info_url ? " • has link" : ""}
-                        {ex.notes ? " • has notes" : ""}
-                      </div>
-                    </div>
-                    <div className="row" style={{ gap: 8 }}>
-                      <button className="btn" onClick={() => openExerciseEditor(ex)}>
-                        Edit
-                      </button>
-                      <button className="btn" onClick={() => deleteExercise(ex.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
+                    {ex.name}
+                  </button>
                 ))}
               </div>
             )}
           </div>
 
-          {editingExercise && (
-            <div className="card" style={{ display: "grid", gap: 10, marginTop: 10 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontWeight: 900 }}>Edit exercise</div>
-                <button
-                  className="btn"
-                  onClick={closeExerciseEditor}
-                  disabled={exerciseEditStatus === "saving"}
-                >
-                  Close
-                </button>
+          {showAddExerciseModal && (
+            <div className="modal-overlay" onClick={() => setShowAddExerciseModal(false)}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ fontWeight: 900, fontSize: 18 }}>Add exercise</div>
+                  <input
+                    className="input"
+                    placeholder="Exercise name (e.g., Dead Hang)"
+                    value={newExName}
+                    onChange={(e) => setNewExName(e.target.value)}
+                  />
+                  <div className="row wrap" style={{ gap: 10 }}>
+                    <select
+                      className="input"
+                      value={newExTrackingType}
+                      onChange={(e) => setNewExTrackingType(e.target.value)}
+                      style={{ minWidth: 220 }}
+                    >
+                      <option value="weight_reps">Weight + reps</option>
+                      <option value="time">Time</option>
+                    </select>
+                    {newExTrackingType === "time" && (
+                      <select
+                        className="input"
+                        value={newExTimeUnit}
+                        onChange={(e) => setNewExTimeUnit(e.target.value)}
+                        style={{ minWidth: 180 }}
+                      >
+                        <option value="seconds">Seconds</option>
+                        <option value="minutes">Minutes</option>
+                      </select>
+                    )}
+                  </div>
+                  <input
+                    className="input"
+                    placeholder="Info URL (optional)"
+                    value={newExUrl}
+                    onChange={(e) => setNewExUrl(e.target.value)}
+                  />
+                  <textarea
+                    className="input"
+                    placeholder="Notes (optional)"
+                    value={newExNotes}
+                    onChange={(e) => setNewExNotes(e.target.value)}
+                    rows={3}
+                  />
+                  <label className="row" style={{ gap: 8, cursor: "pointer", width: "fit-content" }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(newExWarmup)}
+                      onChange={(e) => setNewExWarmup(e.target.checked)}
+                      style={{ width: 16, height: 16, margin: 0, accentColor: "#8aa0ff" }}
+                    />
+                    Warm-up exercise
+                  </label>
+                  <div className="row" style={{ gap: 10 }}>
+                    <button className="btn" onClick={() => setShowAddExerciseModal(false)} style={{ flex: 1 }}>
+                      Cancel
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={createExercise}
+                      disabled={!newExName.trim()}
+                      style={{ flex: 1 }}
+                    >
+                      Add exercise
+                    </button>
+                  </div>
+                </div>
               </div>
-              <input
-                className="input"
-                value={exEditName}
-                onChange={(e) => setExEditName(e.target.value)}
-              />
-              <div className="row wrap" style={{ gap: 10 }}>
-                <select
-                  className="input"
-                  value={exEditTrackingType}
-                  onChange={(e) => setExEditTrackingType(e.target.value)}
-                >
-                  <option value="weight_reps">Weight + reps</option>
-                  <option value="time">Time</option>
-                </select>
-                {exEditTrackingType === "time" && (
+            </div>
+          )}
+
+          {editingExercise && (
+            <div className="modal-overlay" onClick={closeExerciseEditor}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontWeight: 900 }}>Edit exercise</div>
+                    <button
+                      className="btn"
+                      onClick={closeExerciseEditor}
+                      disabled={exerciseEditStatus === "saving"}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <input
+                    className="input"
+                    value={exEditName}
+                    onChange={(e) => setExEditName(e.target.value)}
+                  />
                   <select
                     className="input"
-                    value={exEditTimeUnit}
-                    onChange={(e) => setExEditTimeUnit(e.target.value)}
+                    value={exEditTrackingType}
+                    onChange={(e) => setExEditTrackingType(e.target.value)}
                   >
-                    <option value="seconds">Seconds</option>
-                    <option value="minutes">Minutes</option>
+                    <option value="weight_reps">Weight + reps</option>
+                    <option value="time">Time</option>
                   </select>
-                )}
-              </div>
-              <input
-                className="input"
-                placeholder="Info URL (optional)"
-                value={exEditUrl}
-                onChange={(e) => setExEditUrl(e.target.value)}
-              />
-              <textarea
-                className="input"
-                placeholder="Notes (optional)"
-                value={exEditNotes}
-                onChange={(e) => setExEditNotes(e.target.value)}
-                rows={3}
-              />
-              <div className="row" style={{ gap: 10, alignItems: "center" }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={saveExerciseEdits}
-                  disabled={exerciseEditStatus === "saving"}
-                >
-                  {exerciseEditStatus === "saving" ? "Saving…" : "Save changes"}
-                </button>
-                <div className="muted" style={{ fontSize: 13 }}>
-                  {exerciseEditStatus === "saved"
-                    ? "Saved ✓"
-                    : exerciseEditStatus === "error"
-                    ? "Error — try again"
-                    : ""}
+                  {exEditTrackingType === "time" && (
+                    <select
+                      className="input"
+                      value={exEditTimeUnit}
+                      onChange={(e) => setExEditTimeUnit(e.target.value)}
+                    >
+                      <option value="seconds">Seconds</option>
+                      <option value="minutes">Minutes</option>
+                    </select>
+                  )}
+                  <input
+                    className="input"
+                    placeholder="Info URL (optional)"
+                    value={exEditUrl}
+                    onChange={(e) => setExEditUrl(e.target.value)}
+                  />
+                  <textarea
+                    className="input"
+                    placeholder="Notes (optional)"
+                    value={exEditNotes}
+                    onChange={(e) => setExEditNotes(e.target.value)}
+                    rows={3}
+                  />
+                  <label className="row" style={{ gap: 8, cursor: "pointer", width: "fit-content" }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(exEditWarmup)}
+                      onChange={(e) => setExEditWarmup(e.target.checked)}
+                      style={{ width: 16, height: 16, margin: 0, accentColor: "#8aa0ff" }}
+                    />
+                    Warm-up exercise
+                  </label>
+                  <div className="row" style={{ gap: 10, alignItems: "center" }}>
+                    <button
+                      className="btn"
+                      onClick={deleteEditingExercise}
+                      disabled={exerciseEditStatus === "saving"}
+                      style={{ flex: 1 }}
+                    >
+                      Delete
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={saveExerciseEdits}
+                      disabled={exerciseEditStatus === "saving"}
+                      style={{ flex: 1 }}
+                    >
+                      {exerciseEditStatus === "saving" ? "Saving..." : "Save changes"}
+                    </button>
+                  </div>
+                  <div className="muted" style={{ fontSize: 13, minHeight: 18 }}>
+                    {exerciseEditStatus === "saved"
+                      ? "Saved"
+                      : exerciseEditStatus === "error"
+                      ? "Error - try again"
+                      : ""}
+                  </div>
                 </div>
               </div>
             </div>
@@ -281,42 +336,71 @@ export default function ManageView({
 
       {manageTab === "workouts" && (
         <div style={{ display: "grid", gap: 12 }}>
-          <h3 style={{ margin: 0 }}>Workouts</h3>
-          <div className="row">
-            <input
-              placeholder="Workout name (e.g., Lift D)"
-              value={newWorkoutName}
-              onChange={(e) => setNewWorkoutName(e.target.value)}
-              style={{ flex: 1 }}
-            />
-            <button className="btn btn-primary" onClick={createWorkout}>
-              Add
-            </button>
-          </div>
-          <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 10 }}>
-            {workoutTemplates.length === 0 ? (
-              <div className="muted">No workouts yet.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {workoutTemplates.map((w) => (
-                  <div key={w.id} className="row" style={{ justifyContent: "space-between" }}>
-                    <button
-                      className="btn btn-pill"
-                      onClick={() => openWorkoutEditor(w.id)}
-                    >
-                      {w.name}
-                    </button>
-                    <button className="btn" onClick={() => deleteWorkout(w.id)}>
-                      Delete
-                    </button>
-                  </div>
-                ))}
-              </div>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0 }}>Workouts</h3>
+            {!editingWorkout && (
+              <button className="btn btn-primary" onClick={() => setShowAddWorkoutModal(true)}>
+                Add
+              </button>
             )}
           </div>
 
+          {!editingWorkout && (
+            <div style={{ borderTop: "1px solid #2a2a2a", paddingTop: 10 }}>
+              {workoutTemplates.length === 0 ? (
+                <div className="muted">No workouts yet.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {workoutTemplates.map((w) => (
+                    <div key={w.id} className="row" style={{ justifyContent: "space-between" }}>
+                      <button
+                        className="btn btn-pill"
+                        onClick={() => openWorkoutEditor(w.id)}
+                      >
+                        {w.name}
+                      </button>
+                      <button className="btn" onClick={() => deleteWorkout(w.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {showAddWorkoutModal && (
+            <div className="modal-overlay" onClick={() => setShowAddWorkoutModal(false)}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ fontWeight: 900, fontSize: 18 }}>Add workout</div>
+                  <input
+                    className="input"
+                    placeholder="Workout name (e.g., Lift D)"
+                    value={newWorkoutName}
+                    onChange={(e) => setNewWorkoutName(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="row" style={{ gap: 10 }}>
+                    <button className="btn" onClick={() => setShowAddWorkoutModal(false)} style={{ flex: 1 }}>
+                      Cancel
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleCreateWorkout}
+                      disabled={!newWorkoutName.trim()}
+                      style={{ flex: 1 }}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {editingWorkout && (
-            <div className="card" style={{ marginTop: 8 }}>
+            <div className="card">
               <div
                 className="row"
                 style={{ justifyContent: "space-between", marginBottom: 10, alignItems: "center" }}
@@ -817,3 +901,6 @@ export default function ManageView({
     </div>
   );
 }
+
+
+

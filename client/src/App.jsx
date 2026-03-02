@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import WeeklyPlanner from "./WeeklyPlanner";
 import RunView from "./RunView";
 import ManageView from "./ManageView";
@@ -80,6 +80,7 @@ export default function App() {
   const [newExTimeUnit, setNewExTimeUnit] = useState("seconds"); // "seconds" | "minutes"
   const [newExUrl, setNewExUrl] = useState("");
   const [newExNotes, setNewExNotes] = useState("");
+  const [newExWarmup, setNewExWarmup] = useState(false);
 
   // NEW: edit exercise modal/card state
   const [editingExercise, setEditingExercise] = useState(null); // exercise object
@@ -88,6 +89,7 @@ export default function App() {
   const [exEditTimeUnit, setExEditTimeUnit] = useState("seconds");
   const [exEditUrl, setExEditUrl] = useState("");
   const [exEditNotes, setExEditNotes] = useState("");
+  const [exEditWarmup, setExEditWarmup] = useState(false);
   const [exerciseEditStatus, setExerciseEditStatus] = useState("idle"); // "idle" | "saving" | "saved" | "error"
 
   const [workoutTemplates, setWorkoutTemplates] = useState([]);
@@ -182,7 +184,12 @@ export default function App() {
       });
   }, [view, manageTab]);
 
-  // Load exercises for manage view
+  // Load exercises for app-wide features (warmups, manage)
+  useEffect(() => {
+    fetch(`${API}/api/exercises`).then((r) => r.json()).then(setExercises);
+  }, []);
+
+  // Load manage data when opening manage view
   useEffect(() => {
     if (view !== "manage") return;
     fetch(`${API}/api/exercises`).then((r) => r.json()).then(setExercises);
@@ -389,6 +396,7 @@ export default function App() {
       time_unit: newExTrackingType === "time" ? newExTimeUnit : "seconds",
       info_url: newExUrl.trim() || null,
       notes: newExNotes.trim() || null,
+      warmup: Boolean(newExWarmup),
     };
 
     const resp = await fetch(`${API}/api/exercises`, {
@@ -408,6 +416,7 @@ export default function App() {
     setNewExTimeUnit("seconds");
     setNewExUrl("");
     setNewExNotes("");
+    setNewExWarmup(false);
   }
 
   async function deleteExercise(id) {
@@ -424,6 +433,7 @@ export default function App() {
     setExEditTimeUnit(ex.time_unit ?? "seconds");
     setExEditUrl(ex.info_url ?? "");
     setExEditNotes(ex.notes ?? "");
+    setExEditWarmup(Boolean(ex.warmup));
     setExerciseEditStatus("idle");
   }
 
@@ -443,6 +453,7 @@ export default function App() {
       time_unit: exEditTrackingType === "time" ? exEditTimeUnit : "seconds",
       info_url: exEditUrl.trim() || null,
       notes: exEditNotes.trim() || null,
+      warmup: Boolean(exEditWarmup),
     };
 
     try {
@@ -463,6 +474,7 @@ export default function App() {
       );
 
       setEditingExercise(data);
+      setExEditWarmup(Boolean(data.warmup));
       setExerciseEditStatus("saved");
       setTimeout(() => setExerciseEditStatus("idle"), 900);
     } catch (e) {
@@ -717,6 +729,8 @@ export default function App() {
           startSessionFromPlan={runner.startSessionFromPlan}
           sessionId={runner.sessionId}
           currentExercise={runner.currentExercise}
+          sessionWarmups={runner.sessionWarmups}
+          toggleWarmupCompleted={runner.toggleWarmupCompleted}
           runnerExercises={runner.runnerExercises}
           runnerWorkoutName={runner.runnerWorkoutName}
           exerciseIndex={runner.exerciseIndex}
@@ -752,6 +766,8 @@ export default function App() {
           setNewExUrl={setNewExUrl}
           newExNotes={newExNotes}
           setNewExNotes={setNewExNotes}
+          newExWarmup={newExWarmup}
+          setNewExWarmup={setNewExWarmup}
           editingExercise={editingExercise}
           exEditName={exEditName}
           setExEditName={setExEditName}
@@ -763,6 +779,8 @@ export default function App() {
           setExEditUrl={setExEditUrl}
           exEditNotes={exEditNotes}
           setExEditNotes={setExEditNotes}
+          exEditWarmup={exEditWarmup}
+          setExEditWarmup={setExEditWarmup}
           exerciseEditStatus={exerciseEditStatus}
           createExercise={createExercise}
           deleteExercise={deleteExercise}
