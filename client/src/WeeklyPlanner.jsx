@@ -16,10 +16,10 @@ function addDaysISO(iso, days) {
   return isoDateOnly(d);
 }
 
-function fmtDow(iso) {
+function fmtDowShort(iso) {
   const d = parseISODateOnly(iso);
   return new Intl.DateTimeFormat(undefined, {
-    weekday: "long",
+    weekday: "short",
     timeZone: "UTC",
   }).format(d);
 }
@@ -203,45 +203,109 @@ export default function WeeklyPlanner({
         {loading ? "Loading…" : ""}
       </div>
 
-      {/* days list (wraps nicely on mobile) */}
-      <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+      {/* Compact day list for mobile */}
+      <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
         {days.map((d) => {
           const list = itemsByDay.get(d) || [];
+          const hasPlans = list.length > 0;
           return (
-            <div key={d} className="card" style={{ padding: 12 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
-                <div>
-                  <div style={{ fontWeight: 900 }}>{fmtDow(d)}</div>
-                  <div className="muted" style={{ fontSize: 13 }}>{fmtMD(d)}</div>
-                </div>
-                <button className="btn" onClick={() => openAdd(d)}>+ Add</button>
-              </div>
-
-              <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-                {list.length === 0 ? (
-                  <div className="muted">No plans</div>
+            <div key={d} className="card" style={{ padding: "9px 10px" }}>
+              <div style={{ display: "grid", gap: 6 }}>
+                {!hasPlans ? (
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <div className="row" style={{ gap: 8, minWidth: 0 }}>
+                      <div
+                        className="muted"
+                        style={{
+                          fontWeight: 700,
+                          fontSize: 12,
+                          letterSpacing: 0.3,
+                          whiteSpace: "nowrap",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {fmtDowShort(d)} {fmtMD(d)}
+                      </div>
+                      <div className="muted" style={{ fontSize: 14 }}>No plan</div>
+                    </div>
+                    <button className="btn" onClick={() => openAdd(d)} style={{ padding: "6px 10px", fontSize: 13 }}>
+                      + Add
+                    </button>
+                  </div>
                 ) : (
-                  list.map((it) => (
-                    <div key={it.id} className="row" style={{ justifyContent: "space-between", gap: 10 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 800 }}>{displayForItem(it)}</div>
-                        <div className="muted" style={{ fontSize: 12 }}>
-                          {it.plan_name ? it.plan_name : null}
+                  list.map((it, idx) => (
+                    <div key={it.id} className="row" style={{ justifyContent: "space-between", gap: 8 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 8,
+                          minWidth: 0,
+                          overflow: "hidden",
+                        }}
+                      >
+                        {idx === 0 ? (
+                          <div
+                            className="muted"
+                            style={{
+                              fontWeight: 700,
+                              fontSize: 12,
+                              letterSpacing: 0.3,
+                              whiteSpace: "nowrap",
+                              textTransform: "uppercase",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {fmtDowShort(d)} {fmtMD(d)}
+                          </div>
+                        ) : (
+                          <div style={{ width: 86, flexShrink: 0 }} />
+                        )}
+                        <div
+                          style={{
+                            fontWeight: 800,
+                            fontSize: 16,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {displayForItem(it)}
                         </div>
-                        {it.notes ? (
-                          <div className="muted" style={{ fontSize: 12 }}>{it.notes}</div>
-                        ) : null}
                       </div>
 
-                      <div className="row" style={{ gap: 8 }}>
+                      <div className="row" style={{ gap: 6, flexShrink: 0 }}>
                         <button
                           className="btn btn-primary"
+                          title="Start planned workout"
+                          aria-label="Start planned workout"
                           onClick={() => onStartPlan(Number(it.workout_plan_id), Number(it.id))}
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: 8,
+                            padding: 0,
+                            fontSize: 13,
+                            lineHeight: 1,
+                          }}
                         >
-                          Start
+                          ▶
                         </button>
-                        <button className="btn" onClick={() => removeItem(it.id)}>
-                          Remove
+                        <button
+                          className="btn"
+                          title="Remove from planner"
+                          aria-label="Remove from planner"
+                          onClick={() => removeItem(it.id)}
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: 8,
+                            padding: 0,
+                            fontSize: 13,
+                            lineHeight: 1,
+                          }}
+                        >
+                          ✕
                         </button>
                       </div>
                     </div>
