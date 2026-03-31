@@ -1041,7 +1041,7 @@ app.get("/api/sessions", async (req, res) => {
             case
               when wt.id is null then coalesce(p.name, 'Workout')
               when p.id is null then wt.name
-              else (wt.name || ' — ' || p.name)
+              else (wt.name || ' - ' || p.name)
             end as workout_name
         from workout_sessions ws
         left join workout_plans p on p.id = ws.plan_id
@@ -1071,7 +1071,7 @@ app.get("/api/sessions/:id", async (req, res) => {
             case
               when wt.id is null then coalesce(p.name, 'Workout')
               when p.id is null then wt.name
-              else (wt.name || ' — ' || p.name)
+              else (wt.name || ' - ' || p.name)
             end as workout_name
         from workout_sessions ws
         left join workout_plans p on p.id = ws.plan_id
@@ -1314,7 +1314,7 @@ app.get("/api/calendar", async (req, res) => {
       wt.name as workout_name,
       wc.label,
       wc.notes,
-      (coalesce(wc.label, wt.name) || ' — ' || wp.name) as title
+      (coalesce(wc.label, wt.name) || ' - ' || wp.name) as title
     from workout_calendar wc
     join workout_plans wp on wp.id = wc.workout_plan_id
     join workout_templates wt on wt.id = wc.workout_template_id
@@ -1407,7 +1407,7 @@ app.get("/api/history/sets", async (req, res) => {
           when wt.name is null and p.name is null then 'Workout'
           when wt.name is null then p.name
           when p.name is null then wt.name
-          else (wt.name || ' — ' || p.name)
+          else (wt.name || ' - ' || p.name)
         end as workout_name,
 
         es.exercise_id,

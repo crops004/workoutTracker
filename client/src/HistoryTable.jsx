@@ -149,7 +149,7 @@ export default function HistoryTable({ apiBase }) {
         <div>
           <div style={{ fontWeight: 900, fontSize: 20 }}>History Table</div>
           <div className="muted" style={{ fontSize: 13 }}>
-            One row per set • {filtered.length} rows
+            One row per set - {filtered.length} rows
           </div>
         </div>
 
@@ -191,12 +191,12 @@ export default function HistoryTable({ apiBase }) {
 
         <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 220 }}>
           <div className="muted tiny">Search</div>
-          <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. squat, week 3, bench…" />
+          <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. squat, week 3, bench..." />
         </div>
       </div>
 
       <div style={{ marginTop: 12 }} className="muted">
-        {loading ? "Loading…" : ""}
+        {loading ? "Loading..." : ""}
       </div>
 
       <div

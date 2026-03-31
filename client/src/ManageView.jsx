@@ -428,7 +428,7 @@ export default function ManageView({
                       />
                       {renameWorkoutStatus === "error" && (
                         <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                          Rename failed — try again.
+                          Rename failed - try again.
                         </div>
                       )}
                     </>
@@ -453,7 +453,7 @@ export default function ManageView({
                         onClick={saveRenameWorkout}
                         disabled={renameWorkoutStatus === "saving"}
                       >
-                        {renameWorkoutStatus === "saving" ? "Saving…" : "Save"}
+                        {renameWorkoutStatus === "saving" ? "Saving..." : "Save"}
                       </button>
                     </>
                   )}
@@ -474,7 +474,7 @@ export default function ManageView({
                     value={addExerciseId}
                     onChange={(e) => setAddExerciseId(e.target.value)}
                   >
-                    <option value="">Select exercise…</option>
+                    <option value="">Select exercise...</option>
                     {exercises.map((ex) => (
                       <option key={ex.id} value={ex.id}>
                         {ex.name}
@@ -505,14 +505,14 @@ export default function ManageView({
                               disabled={idx === 0}
                               onClick={() => moveExercise(ex.exercise_id, "up")}
                             >
-                              ↑
+                              ^
                             </button>
                             <button
                               className="btn"
                               disabled={idx === editingWorkout.exercises.length - 1}
                               onClick={() => moveExercise(ex.exercise_id, "down")}
                             >
-                              ↓
+                              v
                             </button>
                             <button
                               className="btn"
@@ -588,7 +588,7 @@ export default function ManageView({
           {!selectedSession && historyMode === "list" && (
             <div className="card card-wide">
               {historyLoading ? (
-                <div className="muted">Loading…</div>
+                <div className="muted">Loading...</div>
               ) : sessions.length === 0 ? (
                 <div className="muted">No sessions yet.</div>
               ) : (
@@ -612,7 +612,7 @@ export default function ManageView({
                           {formatLocalDateTime(s.created_at)}
                         </div>
                       </div>
-                      <div className="muted" style={{ fontSize: 14 }}>›</div>
+                      <div className="muted" style={{ fontSize: 14 }}>{">"}</div>
                     </button>
                   ))}
                 </div>
@@ -624,7 +624,7 @@ export default function ManageView({
               <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
                 <div style={{ fontWeight: 900, fontSize: 18 }}>{selectedSession.workout_name}</div>
                 <div className="muted" style={{ fontSize: 13 }}>
-                  {formatLocalDateTime(selectedSession.created_at)} • Session #{selectedSession.id}
+                  {formatLocalDateTime(selectedSession.created_at)} - Session #{selectedSession.id}
                 </div>
               </div>
               {!selectedSession.exercises || selectedSession.exercises.length === 0 ? (
@@ -643,7 +643,7 @@ export default function ManageView({
                           >
                             <div>Set {set.set_number}</div>
                             <div>
-                              {set.weight ?? "—"} × {set.reps ?? "—"}
+                              {set.weight ?? "-"} x {set.reps ?? "-"}
                               {set.rpe != null ? ` (RPE ${set.rpe})` : ""}
                             </div>
                           </div>
@@ -698,7 +698,7 @@ export default function ManageView({
                     setEditingPlan(null);
                   }}
                 >
-                  <option value="">Select workout…</option>
+                  <option value="">Select workout...</option>
                   {workouts.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}
@@ -788,7 +788,7 @@ export default function ManageView({
                     <div className="muted" style={{ fontSize: 12 }}>
                       Display will be:{" "}
                       <b>
-                        {editingPlan.plan.template_name} — {planNameDraft || editingPlan.plan.name}
+                        {editingPlan.plan.template_name} - {planNameDraft || editingPlan.plan.name}
                       </b>
                     </div>
                   </div>

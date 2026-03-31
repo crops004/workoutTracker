@@ -1,27 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-function lsGet(key, fallback = null) {
-  try {
-    const v = localStorage.getItem(key);
-    return v == null ? fallback : JSON.parse(v);
-  } catch {
-    return fallback;
-  }
-}
-function lsSet(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore
-  }
-}
-function lsDel(key) {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // ignore
-  }
-}
+import { lsDel, lsGet, lsSet } from "./storage";
 
 function repsSeedFromTarget(targetReps) {
   const m = String(targetReps ?? "").match(/\d+/);

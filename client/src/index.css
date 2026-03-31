@@ -205,7 +205,7 @@ textarea::placeholder {
 
 .manage-ex-actions {
   display: grid;
-  grid-template-columns: 44px 44px 1fr; /* ↑ ↓ Remove */
+  grid-template-columns: 44px 44px 1fr; /* ^ v Remove */
   gap: 10px;
   margin-top: 10px;
 }
@@ -222,6 +222,107 @@ textarea::placeholder {
 
 .tiny { font-size: 12px; }
 
+.planner-header {
+  display: grid;
+  gap: 12px;
+}
+
+.planner-header-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.planner-header-subtitle {
+  max-width: 18rem;
+  line-height: 1.35;
+}
+
+.planner-nav {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  gap: 10px;
+  align-items: center;
+}
+
+.planner-nav .btn {
+  width: 100%;
+}
+
+.planner-nav-btn {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.planner-days {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.planner-day {
+  padding: 12px;
+}
+
+.planner-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.planner-day-label {
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.planner-add-btn {
+  padding: 8px 12px;
+  font-size: 14px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.planner-empty-copy {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.planner-entry-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.planner-entry {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #101010;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.planner-entry-title {
+  font-weight: 800;
+  font-size: 17px;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.planner-entry-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.planner-action-btn {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
 /* ---------- Upgrade for larger screens ---------- */
 @media (min-width: 640px) {
   .manage-add-row {
@@ -234,5 +335,31 @@ textarea::placeholder {
   .manage-ex-actions {
     grid-template-columns: 44px 44px 120px;
     justify-content: end;
+  }
+
+  .planner-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .planner-header-subtitle {
+    max-width: none;
+  }
+
+  .planner-nav {
+    grid-template-columns: 52px auto 52px;
+  }
+
+  .planner-entry {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .planner-entry-actions {
+    grid-template-columns: repeat(2, auto);
+  }
+
+  .planner-action-btn {
+    min-width: 92px;
   }
 }

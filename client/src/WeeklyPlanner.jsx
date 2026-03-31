@@ -59,13 +59,11 @@ export default function WeeklyPlanner({
   onResumeActive,
   onStartPlan,
 }) {
-  // use "today" as an anchor; backend normalizes to Monday and returns week_start
   const [weekStart, setWeekStart] = useState(() => localTodayISO());
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  // Add modal state
   const [addForDate, setAddForDate] = useState(null);
   const [planSearch, setPlanSearch] = useState("");
   const [selectedPlanId, setSelectedPlanId] = useState(null);
@@ -98,7 +96,7 @@ export default function WeeklyPlanner({
     setErr("");
     try {
       const data = await fetchJson(`${apiBase}/api/calendar?week_start=${ws}`);
-      setWeekStart(data.week_start); // canonical Monday from server
+      setWeekStart(data.week_start);
       setItems(Array.isArray(data.items) ? data.items : []);
     } catch (e) {
       setErr(e.message || String(e));
@@ -115,9 +113,11 @@ export default function WeeklyPlanner({
   async function goPrev() {
     await loadWeek(addDaysISO(weekStart, -7));
   }
+
   async function goNext() {
     await loadWeek(addDaysISO(weekStart, 7));
   }
+
   async function goToday() {
     await loadWeek(localTodayISO());
   }
@@ -152,31 +152,31 @@ export default function WeeklyPlanner({
   }
 
   function displayForItem(it) {
-    // label override still wins
     if (it.label) return it.label;
-
-    // new: show actual workout name if provided by API
     if (it.workout_name) return it.workout_name;
 
-    // fallback (old behavior)
     const p = (plans || []).find((x) => Number(x.id) === Number(it.workout_plan_id));
     return p ? planDisplayName(p) : `Plan #${it.workout_plan_id}`;
   }
 
   return (
     <div className="card card-wide" style={{ marginTop: 16 }}>
-      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "grid", gap: 4 }}>
+      <div className="planner-header">
+        <div className="planner-header-copy">
           <div style={{ fontWeight: 900, fontSize: 20 }}>Weekly Planner</div>
-          <div className="muted" style={{ fontSize: 13 }}>
-            Week of <b>{fmtMD(weekStart)}</b> (Mon–Sun)
+          <div className="muted planner-header-subtitle" style={{ fontSize: 13 }}>
+            Week of <b>{fmtMD(weekStart)}</b> (Mon-Sun)
           </div>
         </div>
 
-        <div className="row" style={{ gap: 10 }}>
-          <button className="btn" onClick={goPrev}>◀</button>
+        <div className="planner-nav">
+          <button className="btn planner-nav-btn" onClick={goPrev} aria-label="Previous week">
+            {"<"}
+          </button>
           <button className="btn" onClick={goToday}>Today</button>
-          <button className="btn" onClick={goNext}>▶</button>
+          <button className="btn planner-nav-btn" onClick={goNext} aria-label="Next week">
+            {">"}
+          </button>
         </div>
       </div>
 
@@ -184,7 +184,7 @@ export default function WeeklyPlanner({
         <div className="card" style={{ marginTop: 12 }}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>Active workout</div>
           <div className="muted" style={{ marginBottom: 10 }}>
-            {activeSessionLabel ? `${activeSessionLabel} • ` : ""}Session #{activeSessionId}
+            {activeSessionLabel ? `${activeSessionLabel} - ` : ""}Session #{activeSessionId}
           </div>
           <button className="btn btn-primary" onClick={onResumeActive}>
             Resume
@@ -200,124 +200,58 @@ export default function WeeklyPlanner({
       )}
 
       <div style={{ marginTop: 14 }} className="muted">
-        {loading ? "Loading…" : ""}
+        {loading ? "Loading..." : ""}
       </div>
 
-      {/* Compact day list for mobile */}
-      <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+      <div className="planner-days">
         {days.map((d) => {
           const list = itemsByDay.get(d) || [];
           const hasPlans = list.length > 0;
-          return (
-            <div key={d} className="card" style={{ padding: "9px 10px" }}>
-              <div style={{ display: "grid", gap: 6 }}>
-                {!hasPlans ? (
-                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                    <div className="row" style={{ gap: 8, minWidth: 0 }}>
-                      <div
-                        className="muted"
-                        style={{
-                          fontWeight: 700,
-                          fontSize: 12,
-                          letterSpacing: 0.3,
-                          whiteSpace: "nowrap",
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {fmtDowShort(d)} {fmtMD(d)}
-                      </div>
-                      <div className="muted" style={{ fontSize: 14 }}>No plan</div>
-                    </div>
-                    <button className="btn" onClick={() => openAdd(d)} style={{ padding: "6px 10px", fontSize: 13 }}>
-                      + Add
-                    </button>
-                  </div>
-                ) : (
-                  list.map((it, idx) => (
-                    <div key={it.id} className="row" style={{ justifyContent: "space-between", gap: 8 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "baseline",
-                          gap: 8,
-                          minWidth: 0,
-                          overflow: "hidden",
-                        }}
-                      >
-                        {idx === 0 ? (
-                          <div
-                            className="muted"
-                            style={{
-                              fontWeight: 700,
-                              fontSize: 12,
-                              letterSpacing: 0.3,
-                              whiteSpace: "nowrap",
-                              textTransform: "uppercase",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {fmtDowShort(d)} {fmtMD(d)}
-                          </div>
-                        ) : (
-                          <div style={{ width: 86, flexShrink: 0 }} />
-                        )}
-                        <div
-                          style={{
-                            fontWeight: 800,
-                            fontSize: 16,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {displayForItem(it)}
-                        </div>
-                      </div>
 
-                      <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                        <button
-                          className="btn btn-primary"
-                          title="Start planned workout"
-                          aria-label="Start planned workout"
-                          onClick={() => onStartPlan(Number(it.workout_plan_id), Number(it.id))}
-                          style={{
-                            width: 30,
-                            height: 30,
-                            borderRadius: 8,
-                            padding: 0,
-                            fontSize: 13,
-                            lineHeight: 1,
-                          }}
-                        >
-                          ▶
-                        </button>
-                        <button
-                          className="btn"
-                          title="Remove from planner"
-                          aria-label="Remove from planner"
-                          onClick={() => removeItem(it.id)}
-                          style={{
-                            width: 30,
-                            height: 30,
-                            borderRadius: 8,
-                            padding: 0,
-                            fontSize: 13,
-                            lineHeight: 1,
-                          }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  ))
+          return (
+            <div key={d} className="card planner-day">
+              <div className="planner-day-header">
+                <div className="muted planner-day-label">
+                  {fmtDowShort(d)} {fmtMD(d)}
+                </div>
+                {!hasPlans && (
+                  <button className="btn planner-add-btn" onClick={() => openAdd(d)}>
+                    + Add
+                  </button>
                 )}
               </div>
+
+              {!hasPlans ? (
+                <div className="muted planner-empty-copy">No plan</div>
+              ) : (
+                <div className="planner-entry-list">
+                  {list.map((it) => (
+                    <div key={it.id} className="planner-entry">
+                      <div className="planner-entry-title">{displayForItem(it)}</div>
+
+                      <div className="planner-entry-actions">
+                        <button
+                          className="btn btn-primary planner-action-btn"
+                          onClick={() => onStartPlan(Number(it.workout_plan_id), Number(it.id))}
+                        >
+                          Start
+                        </button>
+                        <button
+                          className="btn planner-action-btn"
+                          onClick={() => removeItem(it.id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Add modal (uses your existing modal styles) */}
       {addForDate && (
         <div className="modal-overlay" onClick={() => setAddForDate(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -330,7 +264,7 @@ export default function WeeklyPlanner({
               className="input"
               value={planSearch}
               onChange={(e) => setPlanSearch(e.target.value)}
-              placeholder="Type to filter plans…"
+              placeholder="Type to filter plans..."
             />
 
             <div className="muted tiny" style={{ marginTop: 12, marginBottom: 6 }}>Pick a plan</div>
@@ -353,7 +287,7 @@ export default function WeeklyPlanner({
               className="input"
               value={labelOverride}
               onChange={(e) => setLabelOverride(e.target.value)}
-              placeholder='e.g. "Lift A — Week 3"'
+              placeholder='e.g. "Lift A - Week 3"'
             />
 
             <div className="row" style={{ gap: 10, marginTop: 14 }}>
