@@ -166,7 +166,7 @@ export function useRunner(apiBase) {
   const removeSetRow = useCallback((exerciseId) => {
     setSetsByExercise((prev) => {
       const rows = prev[exerciseId] ? [...prev[exerciseId]] : [];
-      if (rows.length <= 1) return prev;
+      if (rows.length === 0) return prev;
       rows.pop();
       return { ...prev, [exerciseId]: rows };
     });
@@ -213,10 +213,6 @@ export function useRunner(apiBase) {
         })
         .filter((r) => r.weight !== null || r.reps !== null || r.rpe !== null);
 
-      if (cleaned.length === 0) {
-        setSaveStatusByExercise((p) => ({ ...p, [exId]: "idle" }));
-        return true;
-      }
       setSaveStatusByExercise((p) => ({ ...p, [exId]: "saving" }));
       try {
         const resp = await fetch(`${apiBase}/api/sets/bulk`, {
